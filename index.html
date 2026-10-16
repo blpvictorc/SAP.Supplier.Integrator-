@@ -1,0 +1,3726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP ↔️ Supplier Packing List Integrator</title>
+    <!-- Tailwind CSS for Modern UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS for reading Excel files (.xls, .xlsx, .xlsm, .csv) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- ExcelJS for exporting styled .xlsx with exact borders, column widths, and formatting -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    <!-- FileSaver for saving exported files -->
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f1f5f9; }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #1d4ed8; font-weight: 700; background-color: #eff6ff; }
+        .row-selected { background-color: #dbeafe !important; border-left: 4px solid #2563eb; }
+        .cell-input { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.25rem 0.4rem; font-size: 0.75rem; background-color: #ffffff; transition: all 0.15s; }
+        .cell-input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); background-color: #eff6ff; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col text-slate-800">
+
+    <!-- Top Header Bar (Title & Subtitle strictly preserved) -->
+    <header class="bg-slate-900 text-white shadow-lg px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center space-x-3">
+            <span class="text-2xl">📦</span>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">SAP ↔️ Supplier Packing List Integrator web v.1.0</h1>
+                <p class="text-xs text-slate-400">From Core Engine v3.7 • By Victor Chong</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span id="statusBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                Step 1: Waiting for SAP File
+            </span>
+            <button onclick="openColumnMapperModal()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg shadow transition">
+                ⚙️ Map Columns / + New Factory
+            </button>
+            <button onclick="resetAll()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-xs font-medium rounded-lg transition">
+                🔄 Reset All
+            </button>
+            <button onclick="exportMergedExcel()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow flex items-center space-x-2 transition">
+                <span>💾 Output Final Packing List (.xlsx)</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 p-6 max-w-[1720px] w-full mx-auto space-y-6">
+
+        <!-- File Upload & Supplier Selection Cards -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Step 1: SAP File Upload -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-1 rounded">Step 1</span>
+                        <span id="sapFileStatus" class="text-xs text-slate-400">Not Uploaded</span>
+                    </div>
+                    <h2 class="text-base font-bold text-slate-800 mb-1">Import SAP Raw Excel File</h2>
+                    <p class="text-xs text-slate-500 mb-4">Extracts HeaderInfo, FooterInfo, and SAP Master Item Descriptions (K, L, N, P).</p>
+                </div>
+                <label class="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/40 hover:bg-blue-50 transition rounded-lg p-4 text-center cursor-pointer">
+                    <input type="file" id="sapFileInput" accept=".xls,.xlsx,.xlsm,.csv" class="hidden" onchange="handleSAPUpload(event)">
+                    <div class="text-sm font-semibold text-blue-700">📂 Click or Drag SAP File Here</div>
+                    <div id="sapFileName" class="text-xs text-slate-500 mt-1 truncate">Supports .xlsx, .xls, .xlsm, .csv</div>
+                </label>
+            </div>
+
+            <!-- Step 2: Universal Factory PL Upload & Dynamic Mapper -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded">Step 2</span>
+                        <span id="ftyFileStatus" class="text-xs text-slate-400">Not Uploaded</span>
+                    </div>
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-base font-bold text-slate-800">Import Factory Packing List</h2>
+                        <button onclick="openColumnMapperModal()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded border border-indigo-200 transition">
+                            ⚙️ Adjust Columns / + New Factory
+                        </button>
+                    </div>
+                    <div class="flex items-center space-x-2 mb-3">
+                        <label class="text-xs font-semibold text-slate-600 whitespace-nowrap">Parser Mode:</label>
+                        <select id="supplierSelect" onchange="onSupplierChange()" class="w-full text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+                <label class="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50 transition rounded-lg p-4 text-center cursor-pointer">
+                    <input type="file" id="ftyFileInput" accept=".xls,.xlsx,.xlsm,.csv" class="hidden" onchange="handleFTYUpload(event)">
+                    <div class="text-sm font-semibold text-indigo-700">🏭 Click or Drag ANY Factory Packing List Here</div>
+                    <div id="ftyFileName" class="text-xs text-slate-500 mt-1 truncate">Shifted columns? Click "⚙️ Adjust Columns" anytime!</div>
+                </label>
+            </div>
+
+            <!-- Live Summary Metrics -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">Summary</span>
+                        <span id="summaryInvoiceNo" class="text-sm font-extrabold text-slate-800">Invoice: --</span>
+                    </div>
+                    <h2 class="text-base font-bold text-slate-800 mb-3">Live Shipment Overview</h2>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <div class="text-xs text-slate-500">SAP Items</div>
+                            <div id="statSapCount" class="text-lg font-extrabold text-slate-800">0</div>
+                        </div>
+                        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <div class="text-xs text-slate-500">Edited Rows</div>
+                            <div id="statFtyCount" class="text-lg font-extrabold text-indigo-600">0</div>
+                        </div>
+                        <div class="bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                            <div class="text-xs text-emerald-700 font-medium">Final Total Cartons</div>
+                            <div id="statTotalCtns" class="text-lg font-extrabold text-emerald-700">0 CTN(S)</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
+                    <span id="detectedMappingHint" class="truncate max-w-[260px]">Ready for SAP & Factory files</span>
+                    <button onclick="recalculatePipeline()" title="Rebuild EditedItem from Raw/Finalize" class="text-blue-600 hover:underline font-semibold">⚡ Rebuild Pipeline</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="flex border-b border-slate-200 bg-slate-50 overflow-x-auto">
+                <button onclick="switchTab('tab-menu')" id="btn-tab-menu" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap tab-active">
+                    1️⃣ Menu & Description Editor
+                </button>
+                <button onclick="switchTab('tab-finalize')" id="btn-tab-finalize" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    2️⃣ Finalize & Combine Pattern (<span id="badgeFinalizeCount">0</span>)
+                </button>
+                <button onclick="switchTab('tab-edited')" id="btn-tab-edited" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    3️⃣ EditedItem Table (<span id="badgeEditedCount">0</span>)
+                </button>
+                <button onclick="switchTab('tab-preview')" id="btn-tab-preview" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    4️⃣ Live Packing List Preview & Output
+                </button>
+                <button onclick="switchTab('tab-raw')" id="btn-tab-raw" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    🔍 Raw Data Inspector (ImportRaw)
+                </button>
+            </div>
+
+            <!-- TAB 1: MENU & DESCRIPTION EDITOR -->
+            <div id="tab-menu" class="p-6">
+                <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                    
+                    <!-- Left Column: Shipment Details & Unique Item Summary (4 cols) -->
+                    <div class="xl:col-span-4 space-y-5">
+                        <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">🚢 Shipment Details (Editable)</h3>
+                                <span class="text-xs text-slate-400">HeaderInfo & FooterInfo</span>
+                            </div>
+                            <div class="space-y-2.5 text-xs">
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Invoice No.:</label>
+                                    <input type="text" id="hdrInvoice" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 font-bold text-base text-blue-900 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2">
+                                    <label class="font-semibold text-slate-600 pt-1">Sold To Messrs:<br><span class="text-[10px] font-normal text-slate-400">(1 line per row)</span></label>
+                                    <textarea id="hdrSoldTo" rows="4" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs"></textarea>
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Shipped Per:</label>
+                                    <input type="text" id="hdrShippedPer" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Sailing On:</label>
+                                    <input type="text" id="hdrSailing" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">From / To:</label>
+                                    <div class="col-span-2 grid grid-cols-2 gap-1">
+                                        <input type="text" id="hdrFrom" placeholder="From" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                        <input type="text" id="hdrTo" placeholder="To" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Origin:</label>
+                                    <input type="text" id="hdrOrigin" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Payment:</label>
+                                    <input type="text" id="hdrPayment" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Delivery / Date:</label>
+                                    <div class="col-span-2 grid grid-cols-2 gap-1">
+                                        <input type="text" id="hdrDeliveryNo" placeholder="Delivery No" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                        <input type="text" id="hdrDate" placeholder="Date" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2 pt-2 border-t border-slate-200">
+                                    <label class="font-semibold text-slate-600 pt-1">LC No. Lines:</label>
+                                    <textarea id="ftrLC" rows="2" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs" placeholder="Optional LC No. lines"></textarea>
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2">
+                                    <label class="font-semibold text-slate-600 pt-1">Remarks Lines:</label>
+                                    <textarea id="ftrRemarks" rows="3" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grouped Item Summary -->
+                        <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">📊 Unique Item Summary (Menu B18)</h3>
+                            <div class="overflow-y-auto max-h-56 border border-slate-200 rounded-lg bg-white">
+                                <table class="w-full text-xs text-left">
+                                    <thead class="bg-slate-100 text-slate-600 border-b border-slate-200">
+                                        <tr>
+                                            <th class="py-2 px-3">Item#</th>
+                                            <th class="py-2 px-3">Aggregated Breakdown</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="uniqueSummaryBody" class="divide-y divide-slate-100">
+                                        <tr><td colspan="2" class="py-4 text-center text-slate-400">No FTY items loaded</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle Column: FTY Item List with Filter Bar & Checkboxes (5 cols) -->
+                    <div class="xl:col-span-5 flex flex-col">
+                        <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">📋 Factory Item List (Menu F6:L)</h3>
+                                <p class="text-xs text-slate-500">Shifted columns? Click <button onclick="openColumnMapperModal()" class="text-indigo-600 font-bold underline">⚙️ Adjust Columns</button> for 200-row live mapping!</p>
+                            </div>
+                            <div class="flex items-center space-x-1">
+                                <span id="menuFilterCountBadge" class="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">0 / 0</span>
+                                <button onclick="toggleVisibleMenuItems(true)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded">Check Visible</button>
+                                <button onclick="toggleVisibleMenuItems(false)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded">Uncheck Visible</button>
+                            </div>
+                        </div>
+
+                        <!-- TAB 1 FILTER BAR -->
+                        <div class="bg-slate-100 p-2.5 rounded-xl border border-slate-200 mb-3 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center text-xs">
+                            <div class="sm:col-span-4">
+                                <select id="filterMenuItemSelect" onchange="applyMenuFilter()" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <option value="">All Item# (Filter)</option>
+                                </select>
+                            </div>
+                            <div class="sm:col-span-4">
+                                <input type="text" id="filterMenuSearch" oninput="applyMenuFilter()" placeholder="🔍 Search Item# / Desc / #..." class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            </div>
+                            <div class="sm:col-span-3">
+                                <select id="filterMenuStatus" onchange="applyMenuFilter()" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <option value="all">All Status</option>
+                                    <option value="checked">Checked Only</option>
+                                    <option value="unchecked">Unchecked Only</option>
+                                </select>
+                            </div>
+                            <div class="sm:col-span-1 text-right">
+                                <button onclick="clearMenuFilter()" title="Clear Filters" class="w-full py-1.5 bg-white hover:bg-slate-200 text-slate-600 border border-slate-300 rounded-lg font-bold">✕</button>
+                            </div>
+                        </div>
+
+                        <div class="border border-slate-200 rounded-xl overflow-hidden flex-1 bg-white shadow-inner max-h-[620px] overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-slate-800 text-white sticky top-0 z-10">
+                                    <tr>
+                                        <th class="py-2.5 px-2 text-center">Show (L)</th>
+                                        <th class="py-2.5 px-2 text-center"># (Q)</th>
+                                        <th class="py-2.5 px-2">Item#</th>
+                                        <th class="py-2.5 px-2 text-right">CTNqty</th>
+                                        <th class="py-2.5 px-2 text-right">pcs/ctn</th>
+                                        <th class="py-2.5 px-2 text-right">Ttlqty</th>
+                                        <th class="py-2.5 px-2">Description1 (K)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="menuItemListBody" class="divide-y divide-slate-200">
+                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Please upload SAP & Factory Packing List files above.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Interactive Description Editor (3 cols) -->
+                    <div class="xl:col-span-3">
+                        <div class="bg-blue-50/70 rounded-xl p-5 border border-blue-200 sticky top-6">
+                            <div class="flex justify-between items-center mb-3 pb-2 border-b border-blue-200">
+                                <div>
+                                    <h3 class="text-sm font-bold text-blue-950 uppercase tracking-wider">✏️ Item Inspector & Editor</h3>
+                                    <p class="text-xs text-blue-700">Selected Index (index!A1): <span id="editorIndexBadge" class="font-extrabold">None</span></p>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3 text-xs">
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Special Description (Menu N6 → Col P):</label>
+                                    <input type="text" id="editDescSP" placeholder="e.g. KAAMEN RIDER AGITO" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Formatted Item No (Menu N7):</label>
+                                    <input type="text" id="editItemNoDisplay" readonly class="w-full border border-slate-200 rounded-lg px-3 py-1.5 bg-slate-100 text-slate-600 font-mono">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Main Description 1 (Menu N8 → Col K):</label>
+                                    <input type="text" id="editDesc1" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Spec / Shipping Mark (Menu N9 → Col L):</label>
+                                    <textarea id="editDesc2" rows="4" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-mono text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"></textarea>
+                                </div>
+
+                                <div class="grid grid-cols-1 gap-2 pt-1">
+                                    <div class="bg-white p-2.5 rounded-lg border border-blue-100 space-y-1 text-slate-600 font-mono text-[11px]">
+                                        <div><span class="font-bold text-slate-800">Packing (N12):</span> <span id="editDesc3">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Barcode (N13):</span> <span id="editDesc4">--</span></div>
+                                        <div><span class="font-bold text-slate-800">CTN Span (N14):</span> <span id="editDesc5">--</span></div>
+                                        <div class="pt-1 border-t border-slate-100"><span class="font-bold text-slate-800">Cntr/Seal (N16):</span> <span id="editCntrSeal">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Weight (N17):</span> <span id="editWeight">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Dimension (N18):</span> <span id="editDim">--</span></div>
+                                    </div>
+                                </div>
+
+                                <div class="pt-2 flex flex-col gap-2">
+                                    <button onclick="saveDescriptionEdit(false)" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition">
+                                        ✅ Save to Current Row (#<span id="btnCurrIdx">--</span>)
+                                    </button>
+                                    <button onclick="saveDescriptionEdit(true)" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow transition">
+                                        🔗 Apply to All Rows with Same Item# (SAP + FTY)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- TAB 2: FINALIZE & COMBINE PATTERN -->
+            <div id="tab-finalize" class="p-6 hidden">
+                <div class="flex flex-wrap justify-between items-center mb-3 gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">🔗 Finalize Sheet — Clarify Item Combination Pattern</h3>
+                        <p class="text-xs text-slate-500">
+                            Matches <code>MoveAndCleanFilteredFTYDataToTable</code>: 1st appearance is separate; 2nd+ appearances with matching <code>pcs/ctn</code> auto-merge when <b>CombineOrNot (Col U)</b> is checked; differing <code>pcs/ctn</code> break apart into <code>1 CTN(S)</code> rows.
+                        </p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="recalculatePipeline()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-xs font-bold rounded-lg">🔄 Reset Default Combine Rules</button>
+                        <button onclick="switchTab('tab-edited')" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg">Next: Fine-Tune EditedItem Table ➔</button>
+                    </div>
+                </div>
+
+                <!-- TAB 2 FILTER BAR -->
+                <div class="bg-slate-100 p-3 rounded-xl border border-slate-200 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div class="flex flex-wrap items-center gap-2 flex-1">
+                        <span class="font-bold text-slate-700">🌪️ Filter Finalize:</span>
+                        <select id="filterFinItemSelect" onchange="applyFinalizeFilter()" class="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white font-semibold text-slate-800 min-w-[160px] focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="">All Item# (Select)</option>
+                        </select>
+                        <input type="text" id="filterFinSearch" oninput="applyFinalizeFilter()" placeholder="🔍 Search Item#, Description, Container#, Combine#..." class="border border-slate-300 rounded-lg px-3 py-1.5 bg-white min-w-[260px] flex-1 max-w-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <select id="filterFinStatus" onchange="applyFinalizeFilter()" class="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="all">All Combine Status</option>
+                            <option value="combined">Combined Only (Checked)</option>
+                            <option value="standalone">Standalone Only (Unchecked)</option>
+                        </select>
+                        <button onclick="clearFinalizeFilter()" class="px-2.5 py-1.5 bg-white hover:bg-slate-200 text-slate-600 border border-slate-300 rounded-lg font-semibold">✕ Clear</button>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span id="finFilterCountBadge" class="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded border border-amber-300">Showing 0 of 0</span>
+                        <button onclick="toggleVisibleFinalizeCombine(true)" class="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg transition">☑️ Combine Visible</button>
+                        <button onclick="toggleVisibleFinalizeCombine(false)" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition">⬜ Uncombine Visible</button>
+                    </div>
+                </div>
+
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th class="py-2.5 px-3 text-center">Combine# (T)</th>
+                                <th class="py-2.5 px-3 text-center bg-amber-600">CombineOrNot (U)</th>
+                                <th class="py-2.5 px-3">Item# (B)</th>
+                                <th class="py-2.5 px-3 text-right">CTNqty (C)</th>
+                                <th class="py-2.5 px-3 text-right">pcs/ctn (D)</th>
+                                <th class="py-2.5 px-3 text-right">Ttlqty (E)</th>
+                                <th class="py-2.5 px-3 text-right">GW (F)</th>
+                                <th class="py-2.5 px-3 text-right">NW (G)</th>
+                                <th class="py-2.5 px-3">Dimensions (H×I×J)</th>
+                                <th class="py-2.5 px-3">Description1 (K)</th>
+                                <th class="py-2.5 px-3">CTN Span (O)</th>
+                                <th class="py-2.5 px-3">Container / Seal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="finalizeTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 3: EDITEDITEM TABLE (100% MANUALLY EDITABLE + FILTER BAR) -->
+            <div id="tab-edited" class="p-6 hidden">
+                <div class="flex flex-wrap justify-between items-center mb-3 gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">📑 EditedItem Sheet (Table <code>RawItem3</code> — Every Field Manually Editable)</h3>
+                        <p class="text-xs text-slate-500">
+                            Every single cell below is manually editable! Modifying <b>CTNqty (C)</b> or <b>pcs/ctn (D)</b> automatically updates <b>Ttlqty (E)</b>, <b>Desc3 (M)</b>, <b>Span (O)</b>, <b>Total Cartons</b>, <b>4️⃣ Live Packing List Preview</b>, and the <b>Final Output Excel</b>.
+                        </p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="addEditedRow()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow transition">
+                            ➕ Add Blank Row
+                        </button>
+                        <button onclick="buildEditedItemFromFinalize(); populateAllFilterDropdowns(); renderEditedTable(); renderPreview(); updateSummaryMetrics();" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition">
+                            🔄 Revert to Finalize Merge
+                        </button>
+                        <button onclick="switchTab('tab-preview')" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow transition">
+                            4️⃣ Go to Live Preview & Output ➔
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TAB 3 FILTER BAR -->
+                <div class="bg-slate-100 p-3 rounded-xl border border-slate-200 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div class="flex flex-wrap items-center gap-2 flex-1">
+                        <span class="font-bold text-slate-700">🌪️ Filter EditedItem:</span>
+                        <select id="filterEdItemSelect" onchange="applyEditedFilter()" class="border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white font-semibold text-slate-800 min-w-[160px] focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="">All Item# (Select)</option>
+                        </select>
+                        <input type="text" id="filterEdSearch" oninput="applyEditedFilter()" placeholder="🔍 Search Item#, DescSP, Desc1, Desc2, Barcode, Container#..." class="border border-slate-300 rounded-lg px-3 py-1.5 bg-white min-w-[280px] flex-1 max-w-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <button onclick="clearEditedFilter()" class="px-2.5 py-1.5 bg-white hover:bg-slate-200 text-slate-600 border border-slate-300 rounded-lg font-semibold">✕ Clear</button>
+                    </div>
+                    <div>
+                        <span id="edFilterCountBadge" class="text-xs font-bold text-indigo-800 bg-indigo-100 px-2.5 py-1 rounded border border-indigo-300">Showing 0 of 0</span>
+                    </div>
+                </div>
+
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-inner">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th class="py-2.5 px-2 text-center">#</th>
+                                <th class="py-2.5 px-2">Item# (B)</th>
+                                <th class="py-2.5 px-2 text-right">CTNqty (C)</th>
+                                <th class="py-2.5 px-2 text-right">pcs/ctn (D)</th>
+                                <th class="py-2.5 px-2 text-right">Ttlqty (E)</th>
+                                <th class="py-2.5 px-2 text-right">GW (F)</th>
+                                <th class="py-2.5 px-2 text-right">NW (G)</th>
+                                <th class="py-2.5 px-2 text-center">Size (H × I × J)</th>
+                                <th class="py-2.5 px-2">DescSP (P)</th>
+                                <th class="py-2.5 px-2">Desc1 (K)</th>
+                                <th class="py-2.5 px-2">Desc2 (L)</th>
+                                <th class="py-2.5 px-2">Desc3 (M)</th>
+                                <th class="py-2.5 px-2">Barcode (N)</th>
+                                <th class="py-2.5 px-2">Span (O)</th>
+                                <th class="py-2.5 px-2">Container (R) / Seal (S)</th>
+                                <th class="py-2.5 px-2 text-center">Del</th>
+                            </tr>
+                        </thead>
+                        <tbody id="editedTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 4: LIVE PACKING LIST PREVIEW -->
+            <div id="tab-preview" class="p-6 hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">🖨️ Final Merged Packing List Preview (Header + Body + Footer)</h3>
+                        <p class="text-xs text-slate-500">Live reflection of all edits in <b>3️⃣ EditedItem Table</b> and <b>HeaderInfo / FooterInfo</b>.</p>
+                    </div>
+                    <button onclick="exportMergedExcel()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow">
+                        💾 Download Formatted Excel (.xlsx)
+                    </button>
+                </div>
+                <div class="bg-white border border-slate-300 rounded-xl shadow-md p-8 max-w-5xl mx-auto font-mono text-xs overflow-x-auto">
+                    <div id="packingListPreviewContainer"></div>
+                </div>
+            </div>
+
+            <!-- TAB 5: IMPORTRAW INSPECTOR -->
+            <div id="tab-raw" class="p-6 hidden">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-800">🔍 ImportRaw Sheet Inspector (SAP + FTY Combined Raw Table)</h3>
+                    <p class="text-xs text-slate-500">Shows all parsed rows in <code>ImportRaw</code> with sequential index <code># (Col Q)</code>, plus Kam Fung extra columns <code>T</code> & <code>U</code>.</p>
+                </div>
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white max-h-[600px]">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white sticky top-0">
+                            <tr>
+                                <th class="py-2 px-2">Q (#)</th>
+                                <th class="py-2 px-2">Source (A)</th>
+                                <th class="py-2 px-2">Item# (B)</th>
+                                <th class="py-2 px-2 text-right">CTN (C)</th>
+                                <th class="py-2 px-2 text-right">pcs/ctn (D)</th>
+                                <th class="py-2 px-2 text-right">Ttl (E)</th>
+                                <th class="py-2 px-2 text-right">GW (F)</th>
+                                <th class="py-2 px-2 text-right">NW (G)</th>
+                                <th class="py-2 px-2">Dimensions</th>
+                                <th class="py-2 px-2">DescSP (P)</th>
+                                <th class="py-2 px-2">Desc1 (K)</th>
+                                <th class="py-1.5 px-2">Desc2 (L)</th>
+                                <th class="py-2 px-2">Barcode (N)</th>
+                                <th class="py-2 px-2">Cntr / Seal</th>
+                                <th class="py-2 px-2">Col T / U</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rawInspectorBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- ========================================================================== -->
+    <!-- MODAL: LIVE 200-ROW VISUAL COLUMN MAPPER & FREE OFFSET BUILDER             -->
+    <!-- ========================================================================== -->
+    <div id="mapperModal" class="fixed inset-0 bg-slate-900/80 z-50 hidden flex items-center justify-center p-3">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-[1650px] w-full max-h-[95vh] flex flex-col overflow-hidden">
+            <!-- Modal Header -->
+            <div class="bg-slate-900 text-white px-6 py-3.5 flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <span class="text-xl">🎛️</span>
+                    <div>
+                        <h2 class="text-base font-bold">Live 200-Row Visual Column Mapper & Free Row Offset Builder</h2>
+                        <p class="text-xs text-slate-400">Every Column & Row Offset (-20 to +20) updates the 200-Row Preview & Live Extraction Test in real time!</p>
+                    </div>
+                </div>
+                <button onclick="closeColumnMapperModal()" class="text-slate-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+                
+                <!-- Top Controls: Sheet Selection, Preset Loader & Save -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200">
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <label class="font-bold text-indigo-950">Worksheet:</label>
+                        <select id="mapperSheetSelect" onchange="onMapperSheetChange()" class="border border-indigo-300 rounded-lg px-2.5 py-1.5 bg-white font-bold text-slate-800"></select>
+                        
+                        <label class="font-bold text-indigo-950 ml-2">Load Template:</label>
+                        <select id="mapperTemplateSelect" onchange="loadTemplateIntoMapper(this.value)" class="border border-indigo-300 rounded-lg px-2.5 py-1.5 bg-white font-semibold text-indigo-800">
+                            <option value="">-- Choose Starting Template --</option>
+                            <option value="AUTO">🤖 Smart Auto-Detect</option>
+                            <option value="Double Chin">Double Chin (DC - Item & Desc Offset +1)</option>
+                            <option value="Kam Fung">Kam Fung (Col A Item, Col F CTN, Col K/M/O Size)</option>
+                            <option value="Fuman">Fuman (Dynamic Header, Desc Offset +1)</option>
+                            <option value="Idea Kids">Idea Kids (IK - Inch to CM)</option>
+                            <option value="RS">RS (CTN/GW/NW/Size Offset -1, Desc Offset +1)</option>
+                        </select>
+
+                        <div class="flex items-center space-x-1.5 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">
+                            <label class="font-bold text-emerald-700">▶ Start Row #:</label>
+                            <input type="number" id="mapStartRow" value="2" min="1" max="200" oninput="onMapperControlChange()" class="w-16 border border-slate-300 rounded px-1.5 py-0.5 font-mono font-bold text-center">
+                        </div>
+
+                        <label class="flex items-center space-x-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 cursor-pointer">
+                            <input type="checkbox" id="mapInchToCm" onchange="onMapperControlChange()" class="w-4 h-4 text-indigo-600 rounded">
+                            <span class="font-bold text-slate-700">Inch × 2.54 → CM</span>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="newPresetName" placeholder="Save as New Factory Name..." class="border border-slate-300 rounded-lg px-3 py-1.5 bg-white w-52 font-semibold">
+                        <button onclick="saveCustomFactoryPreset()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow transition">
+                            💾 Save Preset
+                        </button>
+                        <button onclick="deleteCurrentCustomPreset()" id="btnDeletePreset" class="hidden px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 12 Field Cards with Individual Column + Free Row Offset (-20 to +20) -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                    
+                    <!-- 1. Item# (Anchor) -->
+                    <div class="p-2.5 rounded-xl border-2 border-blue-400 bg-blue-50/60">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-extrabold text-blue-900">🏷️ Item# (Anchor) *</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-blue-200 text-blue-900 font-bold rounded">Col B</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColItem" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-blue-300 rounded px-1.5 py-1 bg-white font-bold text-slate-800"></select>
+                            <div class="flex items-center border border-blue-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffItem" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. CTNqty -->
+                    <div class="p-2.5 rounded-xl border-2 border-indigo-400 bg-indigo-50/60">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-extrabold text-indigo-900">📦 CTNqty *</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-indigo-200 text-indigo-900 font-bold rounded">Col C</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColCtn" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-indigo-300 rounded px-1.5 py-1 bg-white font-bold text-slate-800"></select>
+                            <div class="flex items-center border border-indigo-300 rounded bg-white px-1" title="Row Offset (-20 to +20 relative to Anchor Row)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffCtn" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. pcs/ctn -->
+                    <div class="p-2.5 rounded-xl border border-violet-300 bg-violet-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-violet-900">🔢 pcs/ctn</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-violet-200 text-violet-900 font-bold rounded">Col D</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColPcs" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-violet-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-violet-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffPcs" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Total Qty -->
+                    <div class="p-2.5 rounded-xl border border-purple-300 bg-purple-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-purple-900">∑ Total Qty</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-purple-200 text-purple-900 font-bold rounded">Col E</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColTtl" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-purple-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-purple-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffTtl" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Gross Weight (GW) -->
+                    <div class="p-2.5 rounded-xl border border-amber-400 bg-amber-50/60">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-amber-900">⚖️ G.W. (kg)</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-amber-200 text-amber-900 font-bold rounded">Col F</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColGW" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-amber-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-amber-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffGW" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 6. Net Weight (NW) -->
+                    <div class="p-2.5 rounded-xl border border-orange-300 bg-orange-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-orange-900">⚖️ N.W. (kg)</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-orange-200 text-orange-900 font-bold rounded">Col G</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColNW" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-orange-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-orange-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffNW" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 7. Size 1 (or Combined L*W*H) -->
+                    <div class="p-2.5 rounded-xl border-2 border-emerald-400 bg-emerald-50/60">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-extrabold text-emerald-900">📏 Size1 (or L×W×H)</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-emerald-200 text-emerald-900 font-bold rounded">Col H</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColSize1" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-emerald-300 rounded px-1.5 py-1 bg-white font-bold"></select>
+                            <div class="flex items-center border border-emerald-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffSize1" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 8. Size 2 (W) -->
+                    <div class="p-2.5 rounded-xl border border-teal-300 bg-teal-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-teal-900">📏 Size2 (W)</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-teal-200 text-teal-900 font-bold rounded">Col I</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColSize2" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-teal-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-teal-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffSize2" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 9. Size 3 (H) -->
+                    <div class="p-2.5 rounded-xl border border-teal-300 bg-teal-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-teal-900">📏 Size3 (H)</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-teal-200 text-teal-900 font-bold rounded">Col J</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColSize3" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-teal-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-teal-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffSize3" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 10. Description1 -->
+                    <div class="p-2.5 rounded-xl border border-cyan-400 bg-cyan-50/60">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-cyan-900">📝 Description</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-cyan-200 text-cyan-900 font-bold rounded">Col K</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColDesc" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-cyan-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-cyan-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffDesc" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 11. Container# -->
+                    <div class="p-2.5 rounded-xl border border-rose-300 bg-rose-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-rose-900">🚢 Container#</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-rose-200 text-rose-900 font-bold rounded">Col R</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColCntr" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-rose-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-rose-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffCntr" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 12. Seal# -->
+                    <div class="p-2.5 rounded-xl border border-pink-300 bg-pink-50/50">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="font-bold text-pink-900">🔒 Seal#</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-pink-200 text-pink-900 font-bold rounded">Col S</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1">
+                            <select id="mapColSeal" onchange="onMapperControlChange()" class="map-col-select col-span-2 border border-pink-300 rounded px-1.5 py-1 bg-white font-semibold"></select>
+                            <div class="flex items-center border border-pink-300 rounded bg-white px-1" title="Row Offset (-20 to +20)">
+                                <span class="text-[10px] text-slate-400 mr-0.5">Off:</span>
+                                <input type="number" id="mapOffSeal" value="0" min="-20" max="20" step="1" oninput="onMapperControlChange()" class="w-full text-center font-mono font-bold focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- LIVE EXTRACTED SAMPLE BAR (Real-Time Verification) -->
+                <div class="bg-slate-900 text-white rounded-xl p-3 border border-slate-700">
+                    <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-400">⚡ Live Extraction Test Result (Real-Time Update)</span>
+                            <span id="liveTestSummaryBadge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">0 Items Matched</span>
+                        </div>
+                        <span class="text-[11px] text-slate-400">Shows the first 5 extracted items based on your current Column + Offset settings above</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-[11px] text-left font-mono">
+                            <thead class="text-slate-400 border-b border-slate-700">
+                                <tr>
+                                    <th class="py-1 px-2">Src Row</th>
+                                    <th class="py-1 px-2 text-blue-300">Item# (Col T/U)</th>
+                                    <th class="py-1 px-2 text-right text-indigo-300">CTNqty</th>
+                                    <th class="py-1 px-2 text-right text-violet-300">pcs/ctn</th>
+                                    <th class="py-1 px-2 text-right text-purple-300">Ttlqty</th>
+                                    <th class="py-1 px-2 text-right text-amber-300">GW</th>
+                                    <th class="py-1 px-2 text-right text-orange-300">NW</th>
+                                    <th class="py-1 px-2 text-emerald-300">Size (H×I×J)</th>
+                                    <th class="py-1 px-2 text-cyan-300">Description1</th>
+                                    <th class="py-1 px-2 text-rose-300">Container / Seal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="liveTestSampleBody" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Raw Factory Sheet Preview Table (First 200 Rows with Live Highlighting) -->
+                <div>
+                    <div class="flex flex-wrap justify-between items-center mb-1.5 gap-2">
+                        <h4 class="font-bold text-slate-800">🔍 Factory File Raw Preview (First 200 Rows — Color-Coded Cells Show Exactly What You Selected + Offset!):</h4>
+                        <span class="text-xs text-slate-500">Click any Row # on the left to set as <b>▶ Start Row #</b></span>
+                    </div>
+                    <div class="border border-slate-300 rounded-xl overflow-auto max-h-[360px] bg-white shadow-inner">
+                        <table class="w-full text-[11px] text-left border-collapse">
+                            <thead id="mapperPreviewHead" class="bg-slate-800 text-white sticky top-0 z-20"></thead>
+                            <tbody id="mapperPreviewBody" class="divide-y divide-slate-200 font-mono"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="bg-slate-100 px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
+                <span class="text-xs text-slate-600">💡 <b>Offset Guide:</b> <code>0</code> = Same Row as Anchor, <code>+1</code> = 1 Row Below Anchor, <code>-1</code> = 1 Row Above Anchor. All cells grabbed by your settings are highlighted in the 200-row table!</span>
+                <div class="flex space-x-2">
+                    <button onclick="closeColumnMapperModal()" class="px-4 py-2 bg-white hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg">Cancel</button>
+                    <button onclick="applyCustomMappingNow()" class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow">
+                        ✅ Apply Mapping & Extract All Data Now
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ============================================================================
+// GLOBAL STATE & BUILT-IN / CUSTOM FACTORY PRESET MAPS
+// ============================================================================
+const STORAGE_KEY_PRESETS = 'BLPHK_PL_CUSTOM_FACTORY_PRESETS_V5_2';
+
+// Built-in default column/offset templates for the 5 original factories
+const BUILTIN_TEMPLATES = {
+    'Double Chin': {
+        startRow: 19, inchToCm: false,
+        colItem: 1, offItem: 1,
+        colCtn: 5, offCtn: 0,
+        colPcs: 0, offPcs: 0,
+        colTtl: 4, offTtl: 0,
+        colGW: 6, offGW: 0,
+        colNW: 7, offNW: 0,
+        colSize1: 8, offSize1: 0,
+        colSize2: 10, offSize2: 0,
+        colSize3: 12, offSize3: 0,
+        colDesc: 2, offDesc: 1,
+        colCntr: 0, offCntr: 0,
+        colSeal: 0, offSeal: 0
+    },
+    'Kam Fung': {
+        startRow: 2, inchToCm: false,
+        colItem: 1, offItem: 0,
+        colCtn: 6, offCtn: 0,
+        colPcs: 5, offPcs: 0,
+        colTtl: 4, offTtl: 0,
+        colGW: 7, offGW: 0,
+        colNW: 9, offNW: 0,
+        colSize1: 11, offSize1: 0,
+        colSize2: 13, offSize2: 0,
+        colSize3: 15, offSize3: 0,
+        colDesc: 3, offDesc: 0,
+        colCntr: 0, offCntr: 0,
+        colSeal: 0, offSeal: 0
+    },
+    'Idea Kids': {
+        startRow: 10, inchToCm: true,
+        colItem: 3, offItem: 0,
+        colCtn: 2, offCtn: 0,
+        colPcs: 6, offPcs: 0,
+        colTtl: 8, offTtl: 0,
+        colGW: 9, offGW: 0,
+        colNW: 10, offNW: 0,
+        colSize1: 7, offSize1: 0,
+        colSize2: 0, offSize2: 0,
+        colSize3: 0, offSize3: 0,
+        colDesc: 4, offDesc: 0,
+        colCntr: 0, offCntr: 0,
+        colSeal: 0, offSeal: 0
+    },
+    'RS': {
+        startRow: 10, inchToCm: false,
+        colItem: 6, offItem: 0,
+        colCtn: 3, offCtn: -1,
+        colPcs: 0, offPcs: 0,
+        colTtl: 5, offTtl: -1,
+        colGW: 8, offGW: -1,
+        colNW: 9, offNW: -1,
+        colSize1: 6, offSize1: -1,
+        colSize2: 0, offSize2: 0,
+        colSize3: 0, offSize3: 0,
+        colDesc: 6, offDesc: 1,
+        colCntr: 0, offCntr: 0,
+        colSeal: 0, offSeal: 0
+    }
+};
+
+// Field metadata for visual highlighting in the 200-row preview
+const MAP_FIELD_META = [
+    { key: 'Item',  colId: 'mapColItem',  offId: 'mapOffItem',  label: '🏷️Item#',   hdrBg: 'bg-blue-600',    cellCls: 'bg-blue-100 ring-2 ring-inset ring-blue-500 font-bold text-blue-950',    tagCls: 'bg-blue-600 text-white' },
+    { key: 'Ctn',   colId: 'mapColCtn',   offId: 'mapOffCtn',   label: '📦CTN',     hdrBg: 'bg-indigo-600',  cellCls: 'bg-indigo-100 ring-2 ring-inset ring-indigo-500 font-bold text-indigo-950',tagCls: 'bg-indigo-600 text-white' },
+    { key: 'Pcs',   colId: 'mapColPcs',   offId: 'mapOffPcs',   label: '🔢pcs/ctn', hdrBg: 'bg-violet-600',  cellCls: 'bg-violet-100 ring-2 ring-inset ring-violet-500 text-violet-950',          tagCls: 'bg-violet-600 text-white' },
+    { key: 'Ttl',   colId: 'mapColTtl',   offId: 'mapOffTtl',   label: '∑TtlQty',   hdrBg: 'bg-purple-600',  cellCls: 'bg-purple-100 ring-2 ring-inset ring-purple-500 text-purple-950',          tagCls: 'bg-purple-600 text-white' },
+    { key: 'GW',    colId: 'mapColGW',    offId: 'mapOffGW',    label: '⚖️GW',      hdrBg: 'bg-amber-600',   cellCls: 'bg-amber-100 ring-2 ring-inset ring-amber-500 text-amber-950',             tagCls: 'bg-amber-600 text-white' },
+    { key: 'NW',    colId: 'mapColNW',    offId: 'mapOffNW',    label: '⚖️NW',      hdrBg: 'bg-orange-600',  cellCls: 'bg-orange-100 ring-2 ring-inset ring-orange-500 text-orange-950',          tagCls: 'bg-orange-600 text-white' },
+    { key: 'Size1', colId: 'mapColSize1', offId: 'mapOffSize1', label: '📏Size1',   hdrBg: 'bg-emerald-600', cellCls: 'bg-emerald-100 ring-2 ring-inset ring-emerald-500 text-emerald-950',       tagCls: 'bg-emerald-600 text-white' },
+    { key: 'Size2', colId: 'mapColSize2', offId: 'mapOffSize2', label: '📏Size2',   hdrBg: 'bg-teal-600',    cellCls: 'bg-teal-100 ring-2 ring-inset ring-teal-500 text-teal-950',                tagCls: 'bg-teal-600 text-white' },
+    { key: 'Size3', colId: 'mapColSize3', offId: 'mapOffSize3', label: '📏Size3',   hdrBg: 'bg-teal-600',    cellCls: 'bg-teal-100 ring-2 ring-inset ring-teal-500 text-teal-950',                tagCls: 'bg-teal-600 text-white' },
+    { key: 'Desc',  colId: 'mapColDesc',  offId: 'mapOffDesc',  label: '📝Desc',    hdrBg: 'bg-cyan-600',    cellCls: 'bg-cyan-100 ring-2 ring-inset ring-cyan-500 text-cyan-950',                tagCls: 'bg-cyan-600 text-white' },
+    { key: 'Cntr',  colId: 'mapColCntr',  offId: 'mapOffCntr',  label: '🚢Cntr#',   hdrBg: 'bg-rose-600',    cellCls: 'bg-rose-100 ring-2 ring-inset ring-rose-500 text-rose-950',                tagCls: 'bg-rose-600 text-white' },
+    { key: 'Seal',  colId: 'mapColSeal',  offId: 'mapOffSeal',  label: '🔒Seal#',   hdrBg: 'bg-pink-600',    cellCls: 'bg-pink-100 ring-2 ring-inset ring-pink-500 text-pink-950',                tagCls: 'bg-pink-600 text-white' }
+];
+
+let state = {
+    supplier: 'AUTO',
+    headerInfo: {
+        invoiceNo: '', soldTo: [], shippedPer: '', sailingOn: '',
+        from: '', to: '', origin: '', payment: '', deliveryNo: '', date: '', page: '1'
+    },
+    footerInfo: { lcLines: [], remarksLines: [] },
+    importRaw: [],
+    finalizeRows: [],
+    editedItems: [],
+    selectedQIndex: null,
+    lastFtyWorkbook: null,
+    customPresets: {},
+    activeCustomMap: null,
+    filters: {
+        menu: { itemNo: '', search: '', status: 'all' },
+        finalize: { itemNo: '', search: '', status: 'all' },
+        edited: { itemNo: '', search: '' }
+    }
+};
+
+window.addEventListener('DOMContentLoaded', () => {
+    loadCustomPresetsFromStorage();
+    populateSupplierSelectDropdown();
+    populateMapperColumnDropdowns();
+});
+
+function loadCustomPresetsFromStorage() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY_PRESETS);
+        if (raw) state.customPresets = JSON.parse(raw);
+    } catch (e) { console.warn(e); }
+}
+
+function saveCustomPresetsToStorage() {
+    try {
+        localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(state.customPresets));
+    } catch (e) { console.warn(e); }
+}
+
+function populateSupplierSelectDropdown() {
+    const sel = document.getElementById('supplierSelect');
+    const current = state.supplier || 'AUTO';
+
+    let html = `
+        <optgroup label="✨ Universal Smart Engine (Recommended)">
+            <option value="AUTO" ${current === 'AUTO' ? 'selected' : ''}>🤖 Smart Auto-Detect</option>
+        </optgroup>
+        <optgroup label="🏭 Built-in Factory Presets (Original VBA)">
+            <option value="Double Chin" ${current === 'Double Chin' ? 'selected' : ''}>Double Chin</option>
+            <option value="Kam Fung" ${current === 'Kam Fung' ? 'selected' : ''}>Kam Fung</option>
+            <option value="Fuman" ${current === 'Fuman' ? 'selected' : ''}>Fuman</option>
+            <option value="Idea Kids" ${current === 'Idea Kids' ? 'selected' : ''}>Idea Kids</option>
+            <option value="RS" ${current === 'RS' ? 'selected' : ''}>RS</option>
+        </optgroup>
+    `;
+
+    const customKeys = Object.keys(state.customPresets);
+    if (customKeys.length > 0) {
+        html += `<optgroup label="⭐ Saved Custom Factory Presets">`;
+        customKeys.forEach(k => {
+            const pKey = `CUSTOM:${k}`;
+            html += `<option value="${escapeAttr(pKey)}" ${current === pKey ? 'selected' : ''}>⭐ ${escapeAttr(k)}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+
+    sel.innerHTML = html;
+}
+
+function colIndexToLetter(col1Based) {
+    let temp, letter = '';
+    let col = col1Based;
+    while (col > 0) {
+        temp = (col - 1) % 26;
+        letter = String.fromCharCode(temp + 65) + letter;
+        col = (col - temp - 1) / 26;
+    }
+    return letter;
+}
+
+function populateMapperColumnDropdowns() {
+    const selects = document.querySelectorAll('.map-col-select');
+    let optionsHtml = `<option value="0">-- None --</option>`;
+    for (let c = 1; c <= 52; c++) {
+        optionsHtml += `<option value="${c}">Col ${colIndexToLetter(c)} (${c})</option>`;
+    }
+    selects.forEach(s => { s.innerHTML = optionsHtml; });
+}
+
+// ============================================================================
+// HELPER FUNCTIONS & UNIVERSAL ITEM# PARSER
+// ============================================================================
+function getNumbersOnly(sourceText) {
+    if (sourceText === null || sourceText === undefined) return '';
+    return String(sourceText).replace(/[^0-9]/g, '');
+}
+
+// Finds the best Packing List worksheet in a multi-sheet workbook (avoids INV or VGM sheets)
+function findBestPackingListSheetName(wb) {
+    if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) return '';
+    // Priority 1: Exact or partial match for "PACKING LIST"
+    const exactPL = wb.SheetNames.find(n => /PACKING\s*LIST/i.test(n));
+    if (exactPL) return exactPL;
+    // Priority 2: Sheet named "PL" or containing "PL" (e.g. DC's "PL" tab)
+    const shortPL = wb.SheetNames.find(n => /^PL$/i.test(n.trim()) || /\bPL\b/i.test(n));
+    if (shortPL) return shortPL;
+    // Priority 3: Scan sheets for "MEASUREMENT" or "PRODUCT DESCRIPTION" or "CARTON"
+    for (const name of wb.SheetNames) {
+        if (/^(INV|INVOICE|VGM)$/i.test(name.trim())) continue;
+        return name;
+    }
+    return wb.SheetNames[0];
+}
+
+function extractItemNoUniversal(rawVal) {
+    if (rawVal === null || rawVal === undefined) return null;
+    const itemRaw = String(rawVal).trim();
+    if (!itemRaw) return null;
+    if (/E-mail/i.test(itemRaw) || /Tel/i.test(itemRaw) || /Fax/i.test(itemRaw) || /Container\s*No/i.test(itemRaw) || /Seal\s*No/i.test(itemRaw)) {
+        return null;
+    }
+    // Reject pure decimal numbers like "2472.00" or "124.50"
+    if (/^\d+\.\d+$/.test(itemRaw.replace(/,/g, ''))) return null;
+
+    let itemNo = '';
+    let firstLetterT = '';
+    let fiveDigitU = '';
+
+    const hasJCode = /J\d{4,8}/i.test(itemRaw.replace(/[()]/g, ''));
+    const has7Digits = /\b\d{7}\b/.test(itemRaw) || /(?:^|[^\d.])(\d{7})(?!\d)/.test(itemRaw);
+    if (!hasJCode && !has7Digits) return null;
+
+    if (itemRaw.includes('\n') || itemRaw.includes('\r') || itemRaw.includes('(') || itemRaw.includes('|')) {
+        const lineParts = itemRaw.split(/[\r\n|]+/);
+        lineParts.forEach(part => {
+            const tokens = part.trim().split(/\s+/);
+            tokens.forEach(tok => {
+                const cleaned = tok.replace(/[()]/g, '').trim();
+                if (cleaned.length >= 5) {
+                    if (/^\d{7}$/.test(cleaned)) {
+                        itemNo = cleaned;
+                    } else if (/^J\d+$/i.test(cleaned)) {
+                        const digits = cleaned.substring(1);
+                        if (digits.length === 5 || digits.length === 6) {
+                            firstLetterT = 'J';
+                            fiveDigitU = digits;
+                            if (!itemNo) itemNo = digits;
+                        } else if (digits.length >= 7) {
+                            firstLetterT = 'J';
+                            itemNo = digits.substring(0, 7);
+                        }
+                    } else if (cleaned.length >= 7 && /^\d{6}/.test(cleaned.substring(1, 7))) {
+                        firstLetterT = cleaned[0];
+                        itemNo = cleaned.substring(1, 8);
+                    }
+                }
+            });
+        });
+    }
+
+    if (!itemNo) {
+        const cleanedSingle = itemRaw.replace(/[()]/g, '').trim();
+        const j7 = cleanedSingle.match(/J(\d{7})/i);
+        const d7 = cleanedSingle.match(/(?:^|[^\d.])(\d{7})(?!\d)/);
+        const j5 = cleanedSingle.match(/^J(\d{5,6})$/i);
+        if (j7) {
+            itemNo = j7[1];
+        } else if (d7) {
+            itemNo = d7[1];
+        } else if (j5) {
+            firstLetterT = 'J';
+            fiveDigitU = j5[1];
+            itemNo = j5[1];
+        }
+    }
+
+    if (!itemNo) return null;
+    return { itemNo, colT: firstLetterT, colU: fiveDigitU };
+}
+
+function parseDimensionsSmart(val1, val2, val3, inchToCm = false) {
+    let s1 = 0, s2 = 0, s3 = 0;
+    const raw1 = cleanStr(val1);
+
+    let dimCandidate = raw1;
+    if (/[xX\*×]/.test(raw1) && (!val2 || cleanStr(val2) === '')) {
+        const match3D = raw1.match(/(\d+(?:\.\d+)?)\s*[xX\*×]\s*(\d+(?:\.\d+)?)\s*[xX\*×]\s*(\d+(?:\.\d+)?)/);
+        if (match3D) {
+            s1 = toNum(match3D[1]);
+            s2 = toNum(match3D[2]);
+            s3 = toNum(match3D[3]);
+        } else {
+            const cleaned = dimCandidate.toUpperCase().replace(/CM|MM|INCH|IN/g, '').replace(/[＊\*×]/g, 'X');
+            const parts = cleaned.split('X');
+            if (parts.length >= 1) s1 = toNum(parts[0]);
+            if (parts.length >= 2) s2 = toNum(parts[1]);
+            if (parts.length >= 3) s3 = toNum(parts[2]);
+        }
+    } else {
+        s1 = toNum(val1);
+        s2 = toNum(val2);
+        s3 = toNum(val3);
+    }
+
+    if (inchToCm) {
+        if (s1 > 0) s1 = roundUp(s1 * 2.54, 2);
+        if (s2 > 0) s2 = roundUp(s2 * 2.54, 2);
+        if (s3 > 0) s3 = roundUp(s3 * 2.54, 2);
+    }
+    return { size1: s1, size2: s2, size3: s3 };
+}
+
+function cleanStr(val) {
+    if (val === null || val === undefined) return '';
+    return String(val).trim();
+}
+
+function toNum(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    const cleaned = String(val).replace(/,/g, '').trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+}
+
+function roundUp(num, decimals) {
+    const factor = Math.pow(10, decimals);
+    return Math.ceil(num * factor) / factor;
+}
+
+function escapeAttr(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function getCell(grid, r1Based, c1Based) {
+    if (r1Based < 1 || c1Based < 1) return '';
+    const row = grid[r1Based - 1];
+    if (!row) return '';
+    const val = row[c1Based - 1];
+    return (val === null || val === undefined) ? '' : val;
+}
+
+function sheetToGrid(ws) {
+    return XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+}
+
+function getFinalTotalCartons() {
+    if (state.editedItems && state.editedItems.length > 0) {
+        return state.editedItems.reduce((acc, item) => acc + toNum(item.ctnQty), 0);
+    }
+    return state.importRaw.filter(r => r.source === 'FTY' && r.checked).reduce((acc, r) => acc + toNum(r.ctnQty), 0);
+}
+
+// ============================================================================
+// SMART AUTO-DETECTOR (Recognizes DC, KF, Fuman, IK, RS + General Layouts)
+// ============================================================================
+function detectFactorySignature(wb) {
+    // 1. Check Double Chin (DC) signature: has sheet with "MEASUREMENT" in Col H (8) and "ITEM NO." in Col A (1)
+    for (const sheetName of wb.SheetNames) {
+        if (/^(INV|INVOICE|VGM)$/i.test(sheetName.trim())) continue;
+        const grid = sheetToGrid(wb.Sheets[sheetName]);
+        for (let r = 1; r <= Math.min(40, grid.length); r++) {
+            const h8 = cleanStr(getCell(grid, r, 8)).toUpperCase();
+            const h1 = cleanStr(getCell(grid, r, 1)).toUpperCase();
+            const h5 = cleanStr(getCell(grid, r, 5)).toUpperCase();
+            if (h8.includes('MEASUREMENT') && (h1.includes('ITEM') || h5.includes('CTN'))) {
+                return { type: 'Double Chin', sheetName, startRow: r + 1 };
+            }
+        }
+    }
+
+    // 2. Check Fuman signature: "PRODUCT DESCRIPTION" in any sheet
+    for (const sheetName of wb.SheetNames) {
+        const grid = sheetToGrid(wb.Sheets[sheetName]);
+        for (let r = 1; r <= Math.min(50, grid.length); r++) {
+            for (let c = 1; c <= 45; c++) {
+                if (/PRODUCT\s*DESCRIPTION/i.test(cleanStr(getCell(grid, r, c)))) {
+                    return { type: 'Fuman', sheetName, startRow: r + 1 };
+                }
+            }
+        }
+    }
+
+    // 3. Check Idea Kids (IK) signature: Sheet containing "PACKING LIST" and Col C (3) has "ITEM NO." and Col G (7) has "MEASUREMENT"
+    for (const sheetName of wb.SheetNames) {
+        if (sheetName.toUpperCase().includes('PACKING LIST')) {
+            const grid = sheetToGrid(wb.Sheets[sheetName]);
+            for (let r = 1; r <= Math.min(40, grid.length); r++) {
+                if (cleanStr(getCell(grid, r, 3)).toUpperCase().includes('ITEM NO.')) {
+                    return { type: 'Idea Kids', sheetName, startRow: r + 1 };
+                }
+            }
+        }
+    }
+
+    // 4. Check Kam Fung (KF) signature: Col A has dual/J item codes & Col F has CTN
+    const firstSheet = wb.SheetNames[0];
+    const grid0 = sheetToGrid(wb.Sheets[firstSheet]);
+    let kfScore = 0, firstKfRow = 2;
+    for (let r = 1; r <= Math.min(50, grid0.length); r++) {
+        const c1 = cleanStr(getCell(grid0, r, 1));
+        if (extractItemNoUniversal(c1) && toNum(getCell(grid0, r, 4)) > 0 && toNum(getCell(grid0, r, 6)) > 0 && cleanStr(getCell(grid0, r, 8)) === 'KGS') {
+            kfScore++;
+            if (kfScore === 1) firstKfRow = r;
+        }
+    }
+    if (kfScore >= 1) {
+        return { type: 'Kam Fung', sheetName: firstSheet, startRow: firstKfRow };
+    }
+
+    // 5. Check RS signature: Col F (6) has J-code and r-1 Col C (3) has CTN
+    for (let r = 2; r <= Math.min(50, grid0.length); r++) {
+        const c6 = cleanStr(getCell(grid0, r, 6));
+        if ((/^J\d{7}/i.test(c6) || /^\d{7}$/.test(c6)) && toNum(getCell(grid0, r - 1, 3)) > 0 && toNum(getCell(grid0, r - 1, 5)) > 0) {
+            return { type: 'RS', sheetName: firstSheet, startRow: r };
+        }
+    }
+
+    return null;
+}
+
+function detectSheetColumns(grid) {
+    // 1. Check Double Chin (DC) signature on this specific sheet
+    for (let r = 1; r <= Math.min(40, grid.length); r++) {
+        const h8 = cleanStr(getCell(grid, r, 8)).toUpperCase();
+        const h1 = cleanStr(getCell(grid, r, 1)).toUpperCase();
+        const h5 = cleanStr(getCell(grid, r, 5)).toUpperCase();
+        if (h8.includes('MEASUREMENT') && (h1.includes('ITEM') || h5.includes('CTN'))) {
+            return { ...BUILTIN_TEMPLATES['Double Chin'], startRow: r + 1 };
+        }
+    }
+
+    // 2. Check Kam Fung signature on this sheet
+    let kfScore = 0, firstKfRow = 0;
+    for (let r = 1; r <= Math.min(60, grid.length); r++) {
+        const c1 = cleanStr(getCell(grid, r, 1));
+        const parsed = extractItemNoUniversal(c1);
+        if (parsed && toNum(getCell(grid, r, 4)) > 0 && toNum(getCell(grid, r, 6)) > 0) {
+            kfScore++;
+            if (firstKfRow === 0) firstKfRow = r;
+        }
+    }
+    if (kfScore >= 1) {
+        return { ...BUILTIN_TEMPLATES['Kam Fung'], startRow: Math.max(1, firstKfRow) };
+    }
+
+    // 3. Check Fuman signature ("PRODUCT DESCRIPTION" anywhere in first 50 rows)
+    for (let r = 1; r <= Math.min(50, grid.length); r++) {
+        for (let c = 1; c <= 45; c++) {
+            if (/PRODUCT\s*DESCRIPTION/i.test(cleanStr(getCell(grid, r, c)))) {
+                let colDesc = c, colCtn = 0, colPcs = 0, colTtl = 0, colGW = 0, colNW = 0, colS1 = 0, colS2 = 0, colS3 = 0;
+                for (let hc = 1; hc <= 60; hc++) {
+                    const h1 = cleanStr(getCell(grid, r, hc)).toUpperCase();
+                    const h2 = cleanStr(getCell(grid, r + 1, hc)).toUpperCase();
+                    if (h1.includes('NO. OF PACKAGES')) colCtn = hc;
+                    else if (h1.includes('CONTENTS')) colPcs = hc;
+                    else if (h1.includes('TOTAL QUANTITIES')) colTtl = hc;
+                    else if (h1.includes('G.W.')) colGW = hc;
+                    else if (h1.includes('N.W.')) colNW = hc;
+                    if (h2.includes('(CM)')) {
+                        if (!colS1) colS1 = hc;
+                        else if (!colS2) colS2 = hc;
+                        else if (!colS3) colS3 = hc;
+                    }
+                }
+                return {
+                    startRow: r + 1, inchToCm: false,
+                    colItem: colDesc, offItem: 0,
+                    colCtn: colCtn || 7, offCtn: 0,
+                    colPcs: colPcs || 17, offPcs: 0,
+                    colTtl: colTtl || 22, offTtl: 0,
+                    colGW: colGW || (colDesc + 4), offGW: 0,
+                    colNW: colNW || (colDesc + 10), offNW: 0,
+                    colSize1: colS1 || (colDesc + 12), offSize1: 0,
+                    colSize2: colS2 || (colDesc + 18), offSize2: 0,
+                    colSize3: colS3 || (colDesc + 24), offSize3: 0,
+                    colDesc: colDesc, offDesc: 1,
+                    colCntr: 0, offCntr: 0, colSeal: 0, offSeal: 0
+                };
+            }
+        }
+    }
+
+    // 4. General Header + Data Heuristic Scanner
+    let bestRow = 1, bestScore = -1;
+    for (let r = 1; r <= Math.min(45, grid.length); r++) {
+        let score = 0;
+        const rowLen = (grid[r - 1] || []).length;
+        for (let c = 1; c <= Math.min(50, rowLen); c++) {
+            const txt = cleanStr(getCell(grid, r, c)).toUpperCase();
+            if (!txt) continue;
+            if (/ITEM|PROD.*DESC|ART.*NO|MODEL/.test(txt)) score += 3;
+            if (/CTN|CARTON|PKG|PACKAGE/.test(txt)) score += 3;
+            if (/PCS|CONTENT|QTY|QUANT/.test(txt)) score += 2;
+            if (/G\.?W|GROSS/.test(txt)) score += 3;
+            if (/N\.?W|NET/.test(txt)) score += 3;
+            if (/MEAS|DIM|CBM|CM|SIZE|L\*W\*H/.test(txt)) score += 2;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestRow = r;
+        }
+    }
+
+    const map = {
+        startRow: bestRow + 1, inchToCm: false,
+        colItem: 0, offItem: 0,
+        colCtn: 0, offCtn: 0,
+        colPcs: 0, offPcs: 0,
+        colTtl: 0, offTtl: 0,
+        colGW: 0, offGW: 0,
+        colNW: 0, offNW: 0,
+        colSize1: 0, offSize1: 0,
+        colSize2: 0, offSize2: 0,
+        colSize3: 0, offSize3: 0,
+        colDesc: 0, offDesc: 0,
+        colCntr: 0, offCntr: 0,
+        colSeal: 0, offSeal: 0
+    };
+
+    const maxCols = Math.max((grid[bestRow - 1] || []).length, (grid[bestRow] || []).length, 30);
+    for (let c = 1; c <= Math.min(52, maxCols); c++) {
+        const h1 = cleanStr(getCell(grid, bestRow, c)).toUpperCase();
+        const h2 = cleanStr(getCell(grid, bestRow + 1, c)).toUpperCase();
+        const combinedH = `${h1} ${h2}`;
+
+        if (map.colItem === 0 && (/ITEM\s*NO|ITEM\s*#|ARTICLE|PRODUCT\s*DESCRIPTION|MODEL/.test(h1))) map.colItem = c;
+        if (map.colDesc === 0 && (/DESCRIPTION|DESC|GOODS|NAME/.test(h1))) map.colDesc = c;
+        if (map.colCtn === 0 && (/NO\.\s*OF\s*PACKAGE|CTN\s*QTY|CARTON|CTNS|TTL\s*CTN|PKG/.test(h1) && !/PCS/.test(h1))) map.colCtn = c;
+        if (map.colPcs === 0 && (/PCS\/CTN|PCS\s*PER|CONTENT|UNIT\s*QTY|INNER|PACKING/.test(h1))) map.colPcs = c;
+        if (map.colTtl === 0 && (/TOTAL\s*QUANT|TTL\s*QTY|TOTAL\s*PCS|TOTAL\s*QTY|QTY\s*\(PCS\)|Q'TY|QTY/.test(combinedH))) map.colTtl = c;
+        if (map.colGW === 0 && (/G\.?W\.?|GROSS\s*W/.test(combinedH))) map.colGW = c;
+        if (map.colNW === 0 && (/N\.?W\.?|NET\s*W/.test(combinedH))) map.colNW = c;
+        if (/INCH/.test(combinedH)) map.inchToCm = true;
+        if (/MEASUREMENT|DIMENSION|SIZE|\(CM\)|L\*W\*H|L\s*X\s*W/.test(combinedH)) {
+            if (map.colSize1 === 0) map.colSize1 = c;
+            else if (map.colSize2 === 0) map.colSize2 = c;
+            else if (map.colSize3 === 0) map.colSize3 = c;
+        }
+        if (map.colCntr === 0 && /CONTAINER/.test(h1)) map.colCntr = c;
+        if (map.colSeal === 0 && /SEAL/.test(h1)) map.colSeal = c;
+    }
+
+    // Fallback scan for Item# column by data content
+    if (map.colItem === 0) {
+        const colHits = {};
+        for (let r = 1; r <= Math.min(50, grid.length); r++) {
+            for (let c = 1; c <= 20; c++) {
+                if (extractItemNoUniversal(getCell(grid, r, c))) {
+                    colHits[c] = (colHits[c] || 0) + 1;
+                }
+            }
+        }
+        let topCol = 0, topCnt = 0;
+        Object.entries(colHits).forEach(([c, cnt]) => {
+            if (cnt > topCnt) { topCnt = cnt; topCol = Number(c); }
+        });
+        if (topCol > 0) map.colItem = topCol;
+    }
+
+    // Check if Item# is actually on row + 1 relative to the row that has CTNqty & GW (like Double Chin)
+    if (map.colItem > 0 && map.colCtn > 0) {
+        for (let r = map.startRow; r <= Math.min(map.startRow + 25, grid.length); r++) {
+            const hasCtnHere = toNum(getCell(grid, r, map.colCtn)) > 0;
+            const hasItemHere = Boolean(extractItemNoUniversal(getCell(grid, r, map.colItem)));
+            const hasItemNext = Boolean(extractItemNoUniversal(getCell(grid, r + 1, map.colItem)));
+            if (hasCtnHere && !hasItemHere && hasItemNext) {
+                map.offItem = 1;
+                if (map.colDesc > 0 && !cleanStr(getCell(grid, r, map.colDesc)) && cleanStr(getCell(grid, r + 1, map.colDesc))) {
+                    map.offDesc = 1;
+                }
+                break;
+            }
+        }
+    }
+
+    // Auto-detect Size2 and Size3 if Size1 is single number and adjacent or +2 columns are numbers
+    if (map.colSize1 > 0 && map.colSize2 === 0) {
+        for (let r = map.startRow; r <= Math.min(map.startRow + 25, grid.length); r++) {
+            const v1 = cleanStr(getCell(grid, r, map.colSize1));
+            if (v1 && !/[xX\*×]/.test(v1) && !isNaN(parseFloat(v1))) {
+                const n1 = cleanStr(getCell(grid, r, map.colSize1 + 1));
+                const n2 = cleanStr(getCell(grid, r, map.colSize1 + 2));
+                if (!isNaN(parseFloat(n1)) && !isNaN(parseFloat(n2))) {
+                    map.colSize2 = map.colSize1 + 1;
+                    map.colSize3 = map.colSize1 + 2;
+                } else if (!isNaN(parseFloat(n2))) {
+                    map.colSize2 = map.colSize1 + 2;
+                    map.colSize3 = map.colSize1 + 4;
+                }
+                break;
+            }
+        }
+    }
+
+    return map;
+}
+
+// ============================================================================
+// CORE ENGINE: EXTRACT ROWS WITH ANY COLUMN + FREE OFFSET MAP
+// ============================================================================
+function runExtractionWithMap(grid, map) {
+    const extractedRows = [];
+    const cellHighlights = {};
+    const matchedAnchorRows = new Set();
+
+    const addHighlight = (r, c, meta, offVal) => {
+        if (r < 1 || c < 1) return;
+        const key = `${r}_${c}`;
+        if (!cellHighlights[key]) cellHighlights[key] = [];
+        const offStr = offVal === 0 ? '' : (offVal > 0 ? `+${offVal}` : `${offVal}`);
+        cellHighlights[key].push({
+            label: `${meta.label}${offStr ? '(' + offStr + ')' : ''}`,
+            cellCls: meta.cellCls,
+            tagCls: meta.tagCls
+        });
+    };
+
+    let currentContainer = '';
+    let currentSeal = '';
+
+    const startR = Math.max(1, Number(map.startRow) || 1);
+    for (let r = 1; r <= grid.length; r++) {
+        // Scan for inline Container No. / Seal No. header rows (supports Kam Fung, DC, RS)
+        const c1 = cleanStr(getCell(grid, r, 1));
+        const c2 = cleanStr(getCell(grid, r, 2));
+        const c5 = cleanStr(getCell(grid, r, 5));
+
+        if (/Container\s*No/i.test(c1)) {
+            const mC = c1.match(/Container\s*No\.?\s*[:：]\s*([^\s\r\n]+)/i);
+            if (mC) currentContainer = cleanStr(mC[1]);
+            else if (c2) currentContainer = c2;
+            if (c5 && !/Seal/i.test(c5)) currentSeal = c5;
+            const mS = c1.match(/Seal\s*No\.?\s*[:：]\s*([^\s\r\n]+)/i);
+            if (mS) currentSeal = cleanStr(mS[1]);
+            continue;
+        } else if (/CONTAINER\s*NO/i.test(c2)) {
+            const parts = c2.split(':');
+            if (parts.length > 1) currentContainer = cleanStr(parts[1]);
+        } else if (/SEAL\s*NO/i.test(c2)) {
+            const parts = c2.split(':');
+            if (parts.length > 1) currentSeal = cleanStr(parts[1]);
+        }
+
+        if (r < startR) continue;
+
+        const rItem = r + (Number(map.offItem) || 0);
+        const rawItemText = map.colItem > 0 ? cleanStr(getCell(grid, rItem, map.colItem)) : '';
+        if (/^(TOTAL|GRAND\s*TOTAL|SUMMARY)$/i.test(rawItemText)) break;
+
+        const parsedItem = extractItemNoUniversal(rawItemText);
+        if (!parsedItem) continue;
+
+        const rCtn = r + (Number(map.offCtn) || 0);
+        const rPcs = r + (Number(map.offPcs) || 0);
+        const rTtl = r + (Number(map.offTtl) || 0);
+
+        let ctnQty = map.colCtn > 0 ? Math.round(toNum(getCell(grid, rCtn, map.colCtn))) : 0;
+        let pcsPerCtn = map.colPcs > 0 ? toNum(getCell(grid, rPcs, map.colPcs)) : 0;
+        let ttlQty = map.colTtl > 0 ? toNum(getCell(grid, rTtl, map.colTtl)) : 0;
+
+        if (ctnQty === 0 && pcsPerCtn > 0 && ttlQty > 0) {
+            ctnQty = Math.round(ttlQty / pcsPerCtn);
+        } else if (pcsPerCtn === 0 && ctnQty > 0 && ttlQty > 0) {
+            pcsPerCtn = Number((ttlQty / ctnQty).toFixed(2));
+        } else if (ttlQty === 0 && ctnQty > 0 && pcsPerCtn > 0) {
+            ttlQty = ctnQty * pcsPerCtn;
+        }
+
+        if (ctnQty <= 0 && ttlQty <= 0) continue;
+
+        const rGW = r + (Number(map.offGW) || 0);
+        const rNW = r + (Number(map.offNW) || 0);
+        const gwVal = map.colGW > 0 ? toNum(getCell(grid, rGW, map.colGW)) : 0;
+        const nwVal = map.colNW > 0 ? toNum(getCell(grid, rNW, map.colNW)) : 0;
+
+        const rS1 = r + (Number(map.offSize1) || 0);
+        const rS2 = r + (Number(map.offSize2) || 0);
+        const rS3 = r + (Number(map.offSize3) || 0);
+        const rawS1 = map.colSize1 > 0 ? getCell(grid, rS1, map.colSize1) : '';
+        const rawS2 = map.colSize2 > 0 ? getCell(grid, rS2, map.colSize2) : '';
+        const rawS3 = map.colSize3 > 0 ? getCell(grid, rS3, map.colSize3) : '';
+        const dims = parseDimensionsSmart(rawS1, rawS2, rawS3, Boolean(map.inchToCm));
+
+        const rDesc = r + (Number(map.offDesc) || 0);
+        let strDesc1 = map.colDesc > 0 ? cleanStr(getCell(grid, rDesc, map.colDesc)) : '';
+        if (strDesc1 === rawItemText && Number(map.offDesc) === Number(map.offItem)) strDesc1 = '';
+
+        const rCntr = r + (Number(map.offCntr) || 0);
+        const rSeal = r + (Number(map.offSeal) || 0);
+        if (map.colCntr > 0 && cleanStr(getCell(grid, rCntr, map.colCntr))) {
+            currentContainer = cleanStr(getCell(grid, rCntr, map.colCntr));
+        }
+        if (map.colSeal > 0 && cleanStr(getCell(grid, rSeal, map.colSeal))) {
+            currentSeal = cleanStr(getCell(grid, rSeal, map.colSeal));
+        }
+
+        matchedAnchorRows.add(r);
+
+        if (r <= 215) {
+            if (map.colItem > 0)  addHighlight(rItem, map.colItem,  MAP_FIELD_META[0], Number(map.offItem) || 0);
+            if (map.colCtn > 0)   addHighlight(rCtn,  map.colCtn,   MAP_FIELD_META[1], Number(map.offCtn) || 0);
+            if (map.colPcs > 0)   addHighlight(rPcs,  map.colPcs,   MAP_FIELD_META[2], Number(map.offPcs) || 0);
+            if (map.colTtl > 0)   addHighlight(rTtl,  map.colTtl,   MAP_FIELD_META[3], Number(map.offTtl) || 0);
+            if (map.colGW > 0)    addHighlight(rGW,   map.colGW,    MAP_FIELD_META[4], Number(map.offGW) || 0);
+            if (map.colNW > 0)    addHighlight(rNW,   map.colNW,    MAP_FIELD_META[5], Number(map.offNW) || 0);
+            if (map.colSize1 > 0) addHighlight(rS1,   map.colSize1, MAP_FIELD_META[6], Number(map.offSize1) || 0);
+            if (map.colSize2 > 0) addHighlight(rS2,   map.colSize2, MAP_FIELD_META[7], Number(map.offSize2) || 0);
+            if (map.colSize3 > 0) addHighlight(rS3,   map.colSize3, MAP_FIELD_META[8], Number(map.offSize3) || 0);
+            if (map.colDesc > 0)  addHighlight(rDesc, map.colDesc,  MAP_FIELD_META[9], Number(map.offDesc) || 0);
+            if (map.colCntr > 0)  addHighlight(rCntr, map.colCntr,  MAP_FIELD_META[10], Number(map.offCntr) || 0);
+            if (map.colSeal > 0)  addHighlight(rSeal, map.colSeal,  MAP_FIELD_META[11], Number(map.offSeal) || 0);
+        }
+
+        extractedRows.push({
+            srcRow: r,
+            source: 'FTY',
+            itemNo: parsedItem.itemNo,
+            ctnQty: ctnQty,
+            pcsCtn: pcsPerCtn,
+            ttlQty: ttlQty,
+            gw: gwVal,
+            nw: nwVal,
+            size1: dims.size1,
+            size2: dims.size2,
+            size3: dims.size3,
+            desc1: strDesc1,
+            desc2: '',
+            desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+            desc4: '',
+            desc5: `from 1 to ${ctnQty} CTN(S)`,
+            descSP: '',
+            qIndex: 0,
+            containerNo: currentContainer,
+            sealNo: currentSeal,
+            colT: parsedItem.colT,
+            colU: parsedItem.colU,
+            checked: true
+        });
+
+        if (Number(map.offDesc) === 1 && map.colDesc === map.colItem) {
+            r++;
+        }
+    }
+
+    return { extractedRows, cellHighlights, matchedAnchorRows };
+}
+
+function parseFTY_WithColumnMap(wb, customMap = null) {
+    let targetSheetName = findBestPackingListSheetName(wb);
+    if (customMap && customMap.sheetName && wb.Sheets[customMap.sheetName]) {
+        targetSheetName = customMap.sheetName;
+    }
+
+    const grid = sheetToGrid(wb.Sheets[targetSheetName]);
+    const map = customMap || detectSheetColumns(grid);
+    state.activeCustomMap = { ...map, sheetName: targetSheetName };
+
+    const hintEl = document.getElementById('detectedMappingHint');
+    if (hintEl) {
+        hintEl.textContent = `Mapped [${targetSheetName}]: Item=Col ${colIndexToLetter(map.colItem)}(${map.offItem||0}), CTN=Col ${colIndexToLetter(map.colCtn)}(${map.offCtn||0}), GW=Col ${colIndexToLetter(map.colGW)}(${map.offGW||0})`;
+    }
+
+    const { extractedRows } = runExtractionWithMap(grid, state.activeCustomMap);
+    state.importRaw.push(...extractedRows);
+}
+
+// ============================================================================
+// VISUAL 200-ROW COLUMN MAPPER MODAL FUNCTIONS (Real-Time Live Highlighting)
+// ============================================================================
+function openColumnMapperModal() {
+    if (!state.lastFtyWorkbook) {
+        alert("Please upload a Factory Packing List file in Step 2 first so we can preview its first 200 rows!");
+        return;
+    }
+
+    const modal = document.getElementById('mapperModal');
+    const sheetSel = document.getElementById('mapperSheetSelect');
+    const wb = state.lastFtyWorkbook;
+
+    sheetSel.innerHTML = wb.SheetNames.map(n => `<option value="${escapeAttr(n)}">${escapeAttr(n)}</option>`).join('');
+    if (state.activeCustomMap && state.activeCustomMap.sheetName && wb.Sheets[state.activeCustomMap.sheetName]) {
+        sheetSel.value = state.activeCustomMap.sheetName;
+    } else {
+        sheetSel.value = findBestPackingListSheetName(wb);
+    }
+
+    const btnDel = document.getElementById('btnDeletePreset');
+    if (state.supplier.startsWith('CUSTOM:')) {
+        const pName = state.supplier.replace('CUSTOM:', '');
+        document.getElementById('newPresetName').value = pName;
+        btnDel.classList.remove('hidden');
+    } else {
+        document.getElementById('newPresetName').value = '';
+        btnDel.classList.add('hidden');
+    }
+
+    if (state.activeCustomMap) {
+        loadMapObjectIntoModalUI(state.activeCustomMap);
+    } else if (BUILTIN_TEMPLATES[state.supplier]) {
+        loadMapObjectIntoModalUI(BUILTIN_TEMPLATES[state.supplier]);
+    } else {
+        const grid = sheetToGrid(wb.Sheets[sheetSel.value]);
+        loadMapObjectIntoModalUI(detectSheetColumns(grid));
+    }
+
+    onMapperControlChange();
+    modal.classList.remove('hidden');
+}
+
+function closeColumnMapperModal() {
+    document.getElementById('mapperModal').classList.add('hidden');
+}
+
+function onMapperSheetChange() {
+    const wb = state.lastFtyWorkbook;
+    if (!wb) return;
+    const sheetName = document.getElementById('mapperSheetSelect').value;
+    const grid = sheetToGrid(wb.Sheets[sheetName]);
+    loadMapObjectIntoModalUI(detectSheetColumns(grid));
+    onMapperControlChange();
+}
+
+function loadTemplateIntoMapper(templateName) {
+    if (!templateName || !state.lastFtyWorkbook) return;
+    const sheetName = document.getElementById('mapperSheetSelect').value || findBestPackingListSheetName(state.lastFtyWorkbook);
+    const grid = sheetToGrid(state.lastFtyWorkbook.Sheets[sheetName]);
+
+    if (templateName === 'AUTO' || templateName === 'Fuman') {
+        loadMapObjectIntoModalUI(detectSheetColumns(grid));
+    } else if (BUILTIN_TEMPLATES[templateName]) {
+        loadMapObjectIntoModalUI(BUILTIN_TEMPLATES[templateName]);
+    }
+    onMapperControlChange();
+}
+
+function loadMapObjectIntoModalUI(map) {
+    document.getElementById('mapStartRow').value = map.startRow || 2;
+    document.getElementById('mapInchToCm').checked = Boolean(map.inchToCm);
+
+    document.getElementById('mapColItem').value  = map.colItem || 0;
+    document.getElementById('mapOffItem').value  = map.offItem !== undefined ? map.offItem : (map.itemRowOffset || 0);
+
+    document.getElementById('mapColCtn').value   = map.colCtn || 0;
+    document.getElementById('mapOffCtn').value   = map.offCtn || 0;
+
+    document.getElementById('mapColPcs').value   = map.colPcs || 0;
+    document.getElementById('mapOffPcs').value   = map.offPcs || 0;
+
+    document.getElementById('mapColTtl').value   = map.colTtl || 0;
+    document.getElementById('mapOffTtl').value   = map.offTtl || 0;
+
+    document.getElementById('mapColGW').value    = map.colGW || 0;
+    document.getElementById('mapOffGW').value    = map.offGW || 0;
+
+    document.getElementById('mapColNW').value    = map.colNW || 0;
+    document.getElementById('mapOffNW').value    = map.offNW || 0;
+
+    document.getElementById('mapColSize1').value = map.colSize1 || 0;
+    document.getElementById('mapOffSize1').value = map.offSize1 || 0;
+
+    document.getElementById('mapColSize2').value = map.colSize2 || 0;
+    document.getElementById('mapOffSize2').value = map.offSize2 || 0;
+
+    document.getElementById('mapColSize3').value = map.colSize3 || 0;
+    document.getElementById('mapOffSize3').value = map.offSize3 || 0;
+
+    document.getElementById('mapColDesc').value  = map.colDesc || 0;
+    document.getElementById('mapOffDesc').value  = map.offDesc !== undefined ? map.offDesc : (map.descRowOffset || 0);
+
+    document.getElementById('mapColCntr').value  = map.colCntr || 0;
+    document.getElementById('mapOffCntr').value  = map.offCntr || 0;
+
+    document.getElementById('mapColSeal').value  = map.colSeal || 0;
+    document.getElementById('mapOffSeal').value  = map.offSeal || 0;
+}
+
+function readMapObjectFromModalUI() {
+    return {
+        sheetName: document.getElementById('mapperSheetSelect').value,
+        startRow: Number(document.getElementById('mapStartRow').value) || 1,
+        inchToCm: document.getElementById('mapInchToCm').checked,
+        colItem:  Number(document.getElementById('mapColItem').value) || 0,
+        offItem:  Number(document.getElementById('mapOffItem').value) || 0,
+        colCtn:   Number(document.getElementById('mapColCtn').value) || 0,
+        offCtn:   Number(document.getElementById('mapOffCtn').value) || 0,
+        colPcs:   Number(document.getElementById('mapColPcs').value) || 0,
+        offPcs:   Number(document.getElementById('mapOffPcs').value) || 0,
+        colTtl:   Number(document.getElementById('mapColTtl').value) || 0,
+        offTtl:   Number(document.getElementById('mapOffTtl').value) || 0,
+        colGW:    Number(document.getElementById('mapColGW').value) || 0,
+        offGW:    Number(document.getElementById('mapOffGW').value) || 0,
+        colNW:    Number(document.getElementById('mapColNW').value) || 0,
+        offNW:    Number(document.getElementById('mapOffNW').value) || 0,
+        colSize1: Number(document.getElementById('mapColSize1').value) || 0,
+        offSize1: Number(document.getElementById('mapOffSize1').value) || 0,
+        colSize2: Number(document.getElementById('mapColSize2').value) || 0,
+        offSize2: Number(document.getElementById('mapOffSize2').value) || 0,
+        colSize3: Number(document.getElementById('mapColSize3').value) || 0,
+        offSize3: Number(document.getElementById('mapOffSize3').value) || 0,
+        colDesc:  Number(document.getElementById('mapColDesc').value) || 0,
+        offDesc:  Number(document.getElementById('mapOffDesc').value) || 0,
+        colCntr:  Number(document.getElementById('mapColCntr').value) || 0,
+        offCntr:  Number(document.getElementById('mapOffCntr').value) || 0,
+        colSeal:  Number(document.getElementById('mapColSeal').value) || 0,
+        offSeal:  Number(document.getElementById('mapOffSeal').value) || 0
+    };
+}
+
+function setStartRowFromPreview(r) {
+    document.getElementById('mapStartRow').value = r;
+    onMapperControlChange();
+}
+
+function onMapperControlChange() {
+    const wb = state.lastFtyWorkbook;
+    if (!wb) return;
+    const map = readMapObjectFromModalUI();
+    const sheetName = map.sheetName || findBestPackingListSheetName(wb);
+    const grid = sheetToGrid(wb.Sheets[sheetName]);
+
+    const { extractedRows, cellHighlights, matchedAnchorRows } = runExtractionWithMap(grid, map);
+
+    const badge = document.getElementById('liveTestSummaryBadge');
+    const sampleBody = document.getElementById('liveTestSampleBody');
+    const sumCtns = extractedRows.reduce((acc, r) => acc + toNum(r.ctnQty), 0);
+
+    if (extractedRows.length > 0) {
+        badge.textContent = `✅ ${extractedRows.length} Items Matched | Total: ${sumCtns} CTN(S)`;
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        sampleBody.innerHTML = extractedRows.slice(0, 5).map(r => `
+            <tr class="hover:bg-slate-800/70">
+                <td class="py-1 px-2 text-slate-400">Row ${r.srcRow}</td>
+                <td class="py-1 px-2 font-bold text-blue-300">${escapeAttr(r.itemNo)} ${r.colU ? `<span class="text-[10px] text-amber-300">(J${escapeAttr(r.colU)})</span>` : ''}</td>
+                <td class="py-1 px-2 text-right font-bold text-indigo-300">${r.ctnQty}</td>
+                <td class="py-1 px-2 text-right text-violet-300">${r.pcsCtn}</td>
+                <td class="py-1 px-2 text-right text-purple-300">${r.ttlQty}</td>
+                <td class="py-1 px-2 text-right text-amber-300">${r.gw}</td>
+                <td class="py-1 px-2 text-right text-orange-300">${r.nw}</td>
+                <td class="py-1 px-2 text-emerald-300">${r.size1} × ${r.size2} × ${r.size3}</td>
+                <td class="py-1 px-2 text-cyan-300 truncate max-w-[220px]">${escapeAttr(r.desc1 || '(From SAP Lookup)')}</td>
+                <td class="py-1 px-2 text-rose-300">${escapeAttr(r.containerNo || '-')} / ${escapeAttr(r.sealNo || '-')}</td>
+            </tr>
+        `).join('');
+    } else {
+        badge.textContent = `⚠️ 0 Items Matched — Adjust Item# or CTNqty Column/Offset`;
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40';
+        sampleBody.innerHTML = `<tr><td colspan="10" class="py-2 text-center text-rose-300">No items matched yet. Check the 200-row table below to see which Column Letter contains Item# and CTNqty.</td></tr>`;
+    }
+
+    renderMapperPreviewGrid(grid, map, cellHighlights, matchedAnchorRows);
+}
+
+function renderMapperPreviewGrid(grid, map, cellHighlights, matchedAnchorRows) {
+    const maxPreviewRows = Math.min(200, grid.length);
+    let maxCols = 16;
+    for (let r = 0; r < maxPreviewRows; r++) {
+        if (grid[r] && grid[r].length > maxCols) maxCols = Math.min(40, grid[r].length);
+    }
+
+    const colHeaderBadges = {};
+    MAP_FIELD_META.forEach(m => {
+        const colVal = Number(document.getElementById(m.colId).value) || 0;
+        const offVal = Number(document.getElementById(m.offId).value) || 0;
+        if (colVal > 0) {
+            if (!colHeaderBadges[colVal]) colHeaderBadges[colVal] = [];
+            const offText = offVal === 0 ? '' : (offVal > 0 ? `+${offVal}` : `${offVal}`);
+            colHeaderBadges[colVal].push(`<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold ${m.hdrBg} text-white shadow-sm">${m.label}${offText ? ' (' + offText + ')' : ''}</span>`);
+        }
+    });
+
+    let headHtml = `<tr><th class="py-2 px-2 bg-slate-900 border-r border-slate-700 text-center sticky left-0 z-30">Row #</th>`;
+    for (let c = 1; c <= maxCols; c++) {
+        const badges = colHeaderBadges[c] ? `<div class="mt-1 flex flex-wrap justify-center gap-1">${colHeaderBadges[c].join('')}</div>` : '';
+        const isMappedCol = Boolean(colHeaderBadges[c]);
+        headHtml += `<th class="py-1.5 px-2 border-r border-slate-700 text-center min-w-[105px] ${isMappedCol ? 'bg-slate-950 ring-1 ring-indigo-400' : ''}">
+            <div>Col ${colIndexToLetter(c)} (${c})</div>
+            ${badges}
+        </th>`;
+    }
+    headHtml += `</tr>`;
+    document.getElementById('mapperPreviewHead').innerHTML = headHtml;
+
+    let bodyHtml = '';
+    for (let r = 1; r <= maxPreviewRows; r++) {
+        const isBeforeStart = r < map.startRow;
+        const isStartRow = r === map.startRow;
+        const isAnchorMatch = matchedAnchorRows.has(r);
+
+        let rowClass = 'hover:bg-slate-100/80 ';
+        if (isBeforeStart) rowClass += 'opacity-45 bg-slate-100 ';
+        if (isStartRow) rowClass += 'border-t-2 border-emerald-500 ';
+
+        bodyHtml += `<tr onclick="setStartRowFromPreview(${r})" class="${rowClass} cursor-pointer" title="Click to set Row ${r} as Start Data Row">`;
+        bodyHtml += `<td class="py-1 px-2 font-bold border-r border-slate-300 text-center sticky left-0 z-10 ${isStartRow ? 'bg-emerald-600 text-white' : (isAnchorMatch ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700')}">
+            ${isStartRow ? '▶ ' : ''}${r}${isAnchorMatch ? ' ✓' : ''}
+        </td>`;
+
+        for (let c = 1; c <= maxCols; c++) {
+            const cellVal = cleanStr(getCell(grid, r, c));
+            const hList = cellHighlights[`${r}_${c}`];
+            if (hList && hList.length > 0) {
+                const primary = hList[0];
+                const tagsHtml = hList.map(h => `<span class="px-1 py-0.2 rounded text-[9px] font-bold ${h.tagCls}">${h.label}</span>`).join(' ');
+                bodyHtml += `<td class="py-1 px-2 border-r border-slate-200 ${primary.cellCls} max-w-[180px]" title="${escapeAttr(cellVal)}">
+                    <div class="flex items-center justify-between gap-1">
+                        <span class="truncate">${escapeAttr(cellVal)}</span>
+                        <span class="shrink-0 flex gap-0.5">${tagsHtml}</span>
+                    </div>
+                </td>`;
+            } else {
+                bodyHtml += `<td class="py-1 px-2 border-r border-slate-200 truncate max-w-[160px]" title="${escapeAttr(cellVal)}">${escapeAttr(cellVal)}</td>`;
+            }
+        }
+        bodyHtml += `</tr>`;
+    }
+    document.getElementById('mapperPreviewBody').innerHTML = bodyHtml;
+}
+
+function applyCustomMappingNow() {
+    const map = readMapObjectFromModalUI();
+    if (map.colItem === 0 || map.colCtn === 0) {
+        alert("Please select at least 'Item# Column' and 'CTNqty Column'!");
+        return;
+    }
+    state.activeCustomMap = map;
+    closeColumnMapperModal();
+
+    if (state.lastFtyWorkbook) {
+        state.importRaw = state.importRaw.filter(r => r.source === 'SAP');
+        parseFTY_WithColumnMap(state.lastFtyWorkbook, map);
+        enrichFTYWithSAPLookup();
+        renumberImportRaw();
+        const firstFty = state.importRaw.find(r => r.source === 'FTY');
+        if (firstFty) selectInspectorRow(firstFty.qIndex);
+        recalculatePipeline();
+    }
+}
+
+function saveCustomFactoryPreset() {
+    const name = document.getElementById('newPresetName').value.trim();
+    if (!name) {
+        alert("Please enter a Factory Name (e.g. 'Kam Fung V2' or 'Dongguan Factory') to save this preset!");
+        return;
+    }
+    const map = readMapObjectFromModalUI();
+    if (map.colItem === 0 || map.colCtn === 0) {
+        alert("Please select at least 'Item# Column' and 'CTNqty Column'!");
+        return;
+    }
+
+    state.customPresets[name] = map;
+    saveCustomPresetsToStorage();
+    state.supplier = `CUSTOM:${name}`;
+    populateSupplierSelectDropdown();
+    applyCustomMappingNow();
+}
+
+function deleteCurrentCustomPreset() {
+    if (!state.supplier.startsWith('CUSTOM:')) return;
+    const name = state.supplier.replace('CUSTOM:', '');
+    if (!confirm(`Delete saved factory preset "${name}"?`)) return;
+    delete state.customPresets[name];
+    saveCustomPresetsToStorage();
+    state.supplier = 'AUTO';
+    populateSupplierSelectDropdown();
+    closeColumnMapperModal();
+}
+
+// ============================================================================
+// FILTER LOGIC HELPERS FOR TABS 1, 2, AND 3
+// ============================================================================
+function populateAllFilterDropdowns() {
+    const menuSelect = document.getElementById('filterMenuItemSelect');
+    const currentMenuVal = state.filters.menu.itemNo;
+    const menuItems = [...new Set(state.importRaw.filter(r => r.source === 'FTY' && r.itemNo).map(r => r.itemNo))];
+    menuSelect.innerHTML = `<option value="">All Item# (${menuItems.length})</option>` +
+        menuItems.map(item => `<option value="${escapeAttr(item)}" ${item === currentMenuVal ? 'selected' : ''}>${escapeAttr(item)}</option>`).join('');
+
+    const finSelect = document.getElementById('filterFinItemSelect');
+    const currentFinVal = state.filters.finalize.itemNo;
+    const finItems = [...new Set(state.finalizeRows.filter(r => r.itemNo).map(r => r.itemNo))];
+    finSelect.innerHTML = `<option value="">All Item# (${finItems.length})</option>` +
+        finItems.map(item => `<option value="${escapeAttr(item)}" ${item === currentFinVal ? 'selected' : ''}>${escapeAttr(item)}</option>`).join('');
+
+    const edSelect = document.getElementById('filterEdItemSelect');
+    const currentEdVal = state.filters.edited.itemNo;
+    const edItems = [...new Set(state.editedItems.filter(r => r.itemNo).map(r => r.itemNo))];
+    edSelect.innerHTML = `<option value="">All Item# (${edItems.length})</option>` +
+        edItems.map(item => `<option value="${escapeAttr(item)}" ${item === currentEdVal ? 'selected' : ''}>${escapeAttr(item)}</option>`).join('');
+}
+
+function doesMenuRowMatchFilter(r) {
+    const f = state.filters.menu;
+    if (f.itemNo && r.itemNo !== f.itemNo) return false;
+    if (f.status === 'checked' && !r.checked) return false;
+    if (f.status === 'unchecked' && r.checked) return false;
+    if (f.search) {
+        const q = f.search.toLowerCase();
+        const hay = `${r.qIndex} ${r.itemNo} ${r.desc1 || ''} ${r.descSP || ''} ${r.containerNo || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+    }
+    return true;
+}
+
+function doesFinalizeRowMatchFilter(fin) {
+    const f = state.filters.finalize;
+    if (f.itemNo && fin.itemNo !== f.itemNo) return false;
+    if (f.status === 'combined' && !fin.combineOrNot) return false;
+    if (f.status === 'standalone' && fin.combineOrNot) return false;
+    if (f.search) {
+        const q = f.search.toLowerCase();
+        const hay = `${fin.combineNo} ${fin.itemNo} ${fin.desc1 || ''} ${fin.desc5 || ''} ${fin.containerNo || ''} ${fin.sealNo || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+    }
+    return true;
+}
+
+function doesEditedRowMatchFilter(ed) {
+    const f = state.filters.edited;
+    if (f.itemNo && ed.itemNo !== f.itemNo) return false;
+    if (f.search) {
+        const q = f.search.toLowerCase();
+        const hay = `${ed.itemNo} ${ed.descSP || ''} ${ed.desc1 || ''} ${ed.desc2 || ''} ${ed.desc3 || ''} ${ed.desc4 || ''} ${ed.desc5 || ''} ${ed.containerNo || ''} ${ed.sealNo || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+    }
+    return true;
+}
+
+function applyMenuFilter() {
+    state.filters.menu.itemNo = document.getElementById('filterMenuItemSelect').value;
+    state.filters.menu.search = document.getElementById('filterMenuSearch').value.trim();
+    state.filters.menu.status = document.getElementById('filterMenuStatus').value;
+    renderMenuItemList(state.importRaw.filter(r => r.source === 'FTY'));
+}
+
+function clearMenuFilter() {
+    state.filters.menu = { itemNo: '', search: '', status: 'all' };
+    document.getElementById('filterMenuItemSelect').value = '';
+    document.getElementById('filterMenuSearch').value = '';
+    document.getElementById('filterMenuStatus').value = 'all';
+    renderMenuItemList(state.importRaw.filter(r => r.source === 'FTY'));
+}
+
+function applyFinalizeFilter() {
+    state.filters.finalize.itemNo = document.getElementById('filterFinItemSelect').value;
+    state.filters.finalize.search = document.getElementById('filterFinSearch').value.trim();
+    state.filters.finalize.status = document.getElementById('filterFinStatus').value;
+    renderFinalizeTable();
+}
+
+function clearFinalizeFilter() {
+    state.filters.finalize = { itemNo: '', search: '', status: 'all' };
+    document.getElementById('filterFinItemSelect').value = '';
+    document.getElementById('filterFinSearch').value = '';
+    document.getElementById('filterFinStatus').value = 'all';
+    renderFinalizeTable();
+}
+
+function applyEditedFilter() {
+    state.filters.edited.itemNo = document.getElementById('filterEdItemSelect').value;
+    state.filters.edited.search = document.getElementById('filterEdSearch').value.trim();
+    renderEditedTable();
+}
+
+function clearEditedFilter() {
+    state.filters.edited = { itemNo: '', search: '' };
+    document.getElementById('filterEdItemSelect').value = '';
+    document.getElementById('filterEdSearch').value = '';
+    renderEditedTable();
+}
+
+// ============================================================================
+// STEP 1: SAP FILE PARSER (Port of Import_SAP.bas)
+// ============================================================================
+function handleSAPUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('sapFileName').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellStyles: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const grid = sheetToGrid(ws);
+
+        parseSAPWorksheet(grid, ws);
+        document.getElementById('sapFileStatus').textContent = '✅ Imported';
+        document.getElementById('sapFileStatus').className = 'text-xs font-bold text-emerald-600';
+        document.getElementById('statusBadge').textContent = 'Step 2: Upload Factory Packing List';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parseSAPWorksheet(grid, ws) {
+    const existingFty = state.importRaw.filter(r => r.source === 'FTY');
+    state.importRaw = [];
+    state.headerInfo = {
+        invoiceNo: '', soldTo: [], shippedPer: '', sailingOn: '',
+        from: '', to: '', origin: '', payment: '', deliveryNo: '', date: '', page: '1'
+    };
+    state.footerInfo = { lcLines: [], remarksLines: [] };
+
+    const maxHdrScan = Math.min(35, grid.length);
+    for (let r = 1; r <= maxHdrScan; r++) {
+        const labelColA = cleanStr(getCell(grid, r, 1));
+        const labelColF = cleanStr(getCell(grid, r, 6));
+
+        if (/Invoice No/i.test(labelColA)) {
+            state.headerInfo.invoiceNo = cleanStr(getCell(grid, r, 2));
+        } else if (/Sold To/i.test(labelColA)) {
+            state.headerInfo.soldTo = [cleanStr(getCell(grid, r, 2))];
+            let addrOffset = 1;
+            while (addrOffset <= 10 && cleanStr(getCell(grid, r + addrOffset, 1)) === '' && cleanStr(getCell(grid, r + addrOffset, 2)) !== '') {
+                state.headerInfo.soldTo.push(cleanStr(getCell(grid, r + addrOffset, 2)));
+                addrOffset++;
+            }
+        } else if (/Shipped Per/i.test(labelColA)) {
+            state.headerInfo.shippedPer = cleanStr(getCell(grid, r, 2));
+        } else if (/Sailing On/i.test(labelColA)) {
+            state.headerInfo.sailingOn = cleanStr(getCell(grid, r, 2));
+        } else if (/From:/i.test(labelColA)) {
+            state.headerInfo.from = cleanStr(getCell(grid, r, 2));
+            state.headerInfo.to = cleanStr(getCell(grid, r, 3));
+        } else if (/Country of Org/i.test(labelColA) || /Country of Ori/i.test(labelColA)) {
+            state.headerInfo.origin = cleanStr(getCell(grid, r, 2));
+        } else if (/Payment/i.test(labelColA)) {
+            state.headerInfo.payment = cleanStr(getCell(grid, r, 2));
+        }
+
+        if (/Delivery No/i.test(labelColF)) {
+            let delivVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.deliveryNo = delivVal;
+        } else if (/Date:/i.test(labelColF)) {
+            let dateVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.date = dateVal;
+        } else if (/Page:/i.test(labelColF)) {
+            let pageVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.page = pageVal || '1';
+        }
+    }
+
+    let startRow = 0;
+    for (let r = 1; r <= Math.min(100, grid.length); r++) {
+        if (/Description/i.test(cleanStr(getCell(grid, r, 2)))) {
+            startRow = r + 1;
+            break;
+        }
+    }
+
+    if (startRow === 0) {
+        alert("Cannot find 'Description of Goods' in Column B of SAP file.");
+        return;
+    }
+
+    let r = startRow;
+    const maxRow = grid.length;
+    while (r <= maxRow) {
+        const colA = cleanStr(getCell(grid, r, 1));
+        const colB = cleanStr(getCell(grid, r, 2));
+
+        if (colA !== '') {
+            if (/Total/i.test(colA) || /LC No/i.test(colA) || /Remarks/i.test(colA)) break;
+            if (/CTN\(S\)/i.test(colA) && colB === '') break;
+        }
+
+        if (colA === '' && colB === '') {
+            r++;
+        } else {
+            let blockStartRow = r;
+            let tempIdx = r;
+            while (tempIdx <= maxRow) {
+                const tA = cleanStr(getCell(grid, tempIdx, 1));
+                const tB = cleanStr(getCell(grid, tempIdx, 2));
+                if (tA === '' && tB === '') break;
+                if (tA !== '' && tB === '' && /CTN\(S\)/i.test(tA)) break;
+                tempIdx++;
+            }
+            let blockEndRow = tempIdx - 1;
+            processSAPItemBlock(grid, blockStartRow, blockEndRow);
+            r = tempIdx;
+        }
+    }
+
+    processSAPFooterInfo(grid, r);
+
+    if (existingFty.length > 0) {
+        state.importRaw.push(...existingFty);
+        enrichFTYWithSAPLookup();
+    }
+
+    renumberImportRaw();
+    populateHeaderUI();
+    recalculatePipeline();
+}
+
+function processSAPItemBlock(grid, startIdx, endIdx) {
+    let itemRowIdx = 0;
+    for (let idx = startIdx; idx <= endIdx; idx++) {
+        if (/Item No:/i.test(cleanStr(getCell(grid, idx, 2)))) {
+            itemRowIdx = idx;
+            break;
+        }
+    }
+    if (itemRowIdx === 0) return;
+
+    let strSpecialDesc = '';
+    if (itemRowIdx > startIdx) {
+        strSpecialDesc = cleanStr(getCell(grid, itemRowIdx - 1, 2));
+    }
+
+    const strItemNo = getNumbersOnly(getCell(grid, itemRowIdx, 2));
+    let metricRow = (itemRowIdx > startIdx && cleanStr(getCell(grid, startIdx, 4)) !== '') ? startIdx : itemRowIdx;
+    const strGrossWt = cleanStr(String(getCell(grid, metricRow, 4)).toUpperCase().replace(/KG/g, ''));
+    const strNetWt = cleanStr(String(getCell(grid, metricRow, 5)).toUpperCase().replace(/KG/g, ''));
+    const strSizeRaw = cleanStr(getCell(grid, metricRow, 6));
+
+    let strSize1 = '', strSize2 = '', strSize3 = '';
+    if (/X/i.test(strSizeRaw)) {
+        const parts = strSizeRaw.toUpperCase().split('X');
+        if (parts.length >= 1) strSize1 = cleanStr(parts[0]);
+        if (parts.length >= 2) strSize2 = cleanStr(parts[1]);
+        if (parts.length >= 3) strSize3 = cleanStr(parts[2]);
+    }
+
+    let strDesc1 = '';
+    if (itemRowIdx + 1 <= endIdx) {
+        strDesc1 = cleanStr(getCell(grid, itemRowIdx + 1, 2));
+    }
+
+    let pcsRowIdx = 0, ctnRowIdx = 0;
+    let strDesc2 = '', strDesc3 = '', strDesc4 = '', strDesc5 = '';
+    let strCtnQty = '', strPcsCtn = '';
+
+    for (let idx = itemRowIdx + 2; idx <= endIdx; idx++) {
+        const valColA = cleanStr(getCell(grid, idx, 1));
+        const valColB = cleanStr(getCell(grid, idx, 2));
+
+        if (/PCS PER/i.test(valColB)) {
+            pcsRowIdx = idx;
+            strDesc3 = valColB;
+            strPcsCtn = getNumbersOnly(valColB.toUpperCase().split('PCS')[0]);
+        } else if (/BARCODE/i.test(valColB)) {
+            strDesc4 = valColB;
+        }
+
+        if (/CTN/i.test(valColA)) {
+            ctnRowIdx = idx;
+            strCtnQty = getNumbersOnly(valColA);
+            strDesc5 = valColB;
+        }
+    }
+
+    if (ctnRowIdx === 0) {
+        ctnRowIdx = endIdx;
+        strDesc5 = cleanStr(getCell(grid, ctnRowIdx, 2));
+        strCtnQty = getNumbersOnly(cleanStr(getCell(grid, ctnRowIdx, 1)));
+    }
+
+    if (pcsRowIdx > itemRowIdx + 2) {
+        const d2Lines = [];
+        for (let idx = itemRowIdx + 2; idx <= pcsRowIdx - 1; idx++) {
+            const line = cleanStr(getCell(grid, idx, 2));
+            if (line) d2Lines.push(line);
+        }
+        strDesc2 = d2Lines.join('\n');
+    }
+
+    const ctnNum = toNum(strCtnQty);
+    const pcsNum = toNum(strPcsCtn);
+    const ttlNum = (ctnNum > 0 && pcsNum > 0) ? (ctnNum * pcsNum) : '';
+
+    state.importRaw.push({
+        source: 'SAP',
+        itemNo: strItemNo,
+        ctnQty: ctnNum || strCtnQty,
+        pcsCtn: pcsNum || strPcsCtn,
+        ttlQty: ttlNum,
+        gw: toNum(strGrossWt),
+        nw: toNum(strNetWt),
+        size1: toNum(strSize1),
+        size2: toNum(strSize2),
+        size3: toNum(strSize3),
+        desc1: strDesc1,
+        desc2: strDesc2,
+        desc3: strDesc3,
+        desc4: strDesc4,
+        desc5: strDesc5,
+        descSP: strSpecialDesc,
+        qIndex: 0,
+        containerNo: '',
+        sealNo: '',
+        colT: '',
+        colU: '',
+        checked: false
+    });
+}
+
+function processSAPFooterInfo(grid, startRow) {
+    let lcRow = 0, rmkRow = 0;
+    const maxScan = Math.min(grid.length, startRow + 60);
+    for (let r = startRow; r <= maxScan; r++) {
+        const valA = cleanStr(getCell(grid, r, 1));
+        if (/LC No/i.test(valA)) lcRow = r;
+        if (/Remarks/i.test(valA)) {
+            rmkRow = r;
+            break;
+        }
+    }
+
+    if (lcRow > 0) {
+        const rightVal = cleanStr(getCell(grid, lcRow, 2));
+        if (rightVal) state.footerInfo.lcLines.push(rightVal);
+        if (rmkRow > lcRow) {
+            for (let tmpR = lcRow + 1; tmpR < rmkRow; tmpR++) {
+                const v1 = cleanStr(getCell(grid, tmpR, 1));
+                const v2 = cleanStr(getCell(grid, tmpR, 2));
+                if (v1) state.footerInfo.lcLines.push(v1);
+                else if (v2) state.footerInfo.lcLines.push(v2);
+            }
+        }
+    }
+
+    if (rmkRow > 0) {
+        let blankCount = 0;
+        for (let tmpR = rmkRow + 1; tmpR <= Math.min(grid.length, rmkRow + 30); tmpR++) {
+            let rmkVal = cleanStr(getCell(grid, tmpR, 1)) || cleanStr(getCell(grid, tmpR, 2));
+            if (!rmkVal) {
+                blankCount++;
+                if (blankCount >= 4) break;
+            } else {
+                blankCount = 0;
+                if (/FOR AND ON BEHALF/i.test(rmkVal) || /AUTHORIZED/i.test(rmkVal)) break;
+                state.footerInfo.remarksLines.push(rmkVal);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// STEP 2: FACTORY PACKING LIST PARSERS
+// ============================================================================
+function onSupplierChange() {
+    state.supplier = document.getElementById('supplierSelect').value;
+    state.activeCustomMap = null;
+    if (state.lastFtyWorkbook) {
+        parseFactoryWorkbook(state.lastFtyWorkbook);
+    } else {
+        recalculatePipeline();
+    }
+}
+
+function handleFTYUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('ftyFileName').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        state.lastFtyWorkbook = wb;
+        state.activeCustomMap = null;
+        parseFactoryWorkbook(wb);
+
+        document.getElementById('ftyFileStatus').textContent = `✅ Imported (${state.supplier})`;
+        document.getElementById('ftyFileStatus').className = 'text-xs font-bold text-indigo-600';
+        document.getElementById('statusBadge').textContent = 'Ready: Filter, Edit Any Field, or Output Excel';
+        document.getElementById('statusBadge').className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function enrichFTYWithSAPLookup() {
+    const sapMap = {};
+    state.importRaw.forEach(r => {
+        if (r.source === 'SAP' && r.itemNo && !sapMap[r.itemNo]) {
+            sapMap[r.itemNo] = r;
+        }
+    });
+
+    state.importRaw.forEach(r => {
+        if (r.source === 'FTY') {
+            const sap = sapMap[r.itemNo];
+            if (sap) {
+                if (!r.desc1 && sap.desc1) r.desc1 = sap.desc1;
+                if (!r.desc2 && sap.desc2) r.desc2 = sap.desc2;
+                if (!r.desc4 && sap.desc4) r.desc4 = sap.desc4;
+                if (!r.descSP && sap.descSP) r.descSP = sap.descSP;
+            }
+        }
+    });
+}
+
+function parseFactoryWorkbook(wb) {
+    state.supplier = document.getElementById('supplierSelect').value;
+    state.importRaw = state.importRaw.filter(r => r.source === 'SAP');
+
+    if (state.supplier === 'AUTO') {
+        // First check if the workbook matches any of the 5 known factory signatures (DC, Fuman, IK, KF, RS)
+        const sig = detectFactorySignature(wb);
+        if (sig) {
+            if (sig.type === 'Double Chin') {
+                parseFTY_DC(wb);
+                state.activeCustomMap = { ...BUILTIN_TEMPLATES['Double Chin'], sheetName: sig.sheetName, startRow: sig.startRow };
+            } else if (sig.type === 'Fuman') {
+                parseFTY_FuMan(wb);
+                const grid = sheetToGrid(wb.Sheets[sig.sheetName]);
+                state.activeCustomMap = { ...detectSheetColumns(grid), sheetName: sig.sheetName };
+            } else if (sig.type === 'Idea Kids') {
+                parseFTY_IK(wb);
+                state.activeCustomMap = { ...BUILTIN_TEMPLATES['Idea Kids'], sheetName: sig.sheetName, startRow: sig.startRow };
+            } else if (sig.type === 'Kam Fung') {
+                parseFTY_KF(wb);
+                state.activeCustomMap = { ...BUILTIN_TEMPLATES['Kam Fung'], sheetName: sig.sheetName, startRow: sig.startRow };
+            } else if (sig.type === 'RS') {
+                parseFTY_RS(wb);
+                state.activeCustomMap = { ...BUILTIN_TEMPLATES['RS'], sheetName: sig.sheetName, startRow: sig.startRow };
+            }
+            const hintEl = document.getElementById('detectedMappingHint');
+            if (hintEl) hintEl.textContent = `Auto-Detected [${sig.type}] on sheet "${sig.sheetName}"`;
+        } else {
+            parseFTY_WithColumnMap(wb, null);
+        }
+    } else if (state.supplier.startsWith('CUSTOM:')) {
+        const presetName = state.supplier.replace('CUSTOM:', '');
+        const customMap = state.customPresets[presetName];
+        parseFTY_WithColumnMap(wb, customMap);
+    } else if (state.supplier === 'Double Chin') {
+        const dcSheet = findBestPackingListSheetName(wb);
+        parseFTY_DC(wb);
+        state.activeCustomMap = { ...BUILTIN_TEMPLATES['Double Chin'], sheetName: dcSheet };
+    } else if (state.supplier === 'Fuman') {
+        parseFTY_FuMan(wb);
+    } else if (state.supplier === 'Idea Kids') {
+        const ikSheet = findBestPackingListSheetName(wb);
+        parseFTY_IK(wb);
+        state.activeCustomMap = { ...BUILTIN_TEMPLATES['Idea Kids'], sheetName: ikSheet };
+    } else if (state.supplier === 'Kam Fung') {
+        parseFTY_KF(wb);
+        state.activeCustomMap = { ...BUILTIN_TEMPLATES['Kam Fung'], sheetName: wb.SheetNames[0] };
+    } else if (state.supplier === 'RS') {
+        parseFTY_RS(wb);
+        state.activeCustomMap = { ...BUILTIN_TEMPLATES['RS'], sheetName: wb.SheetNames[0] };
+    }
+
+    const ftyExtracted = state.importRaw.filter(r => r.source === 'FTY').length;
+    if (ftyExtracted === 0) {
+        parseFTY_WithColumnMap(wb, null);
+        const recovered = state.importRaw.filter(r => r.source === 'FTY').length;
+        if (recovered === 0) {
+            openColumnMapperModal();
+            return;
+        }
+    }
+
+    enrichFTYWithSAPLookup();
+    renumberImportRaw();
+    const firstFty = state.importRaw.find(r => r.source === 'FTY');
+    if (firstFty) selectInspectorRow(firstFty.qIndex);
+    recalculatePipeline();
+}
+
+// Double Chin Parser: Scans all sheets (including "PL" tab!) for "MEASUREMENT" in Col H
+function parseFTY_DC(wb) {
+    let targetSheet = null;
+    let startRow = 0;
+
+    for (const sName of wb.SheetNames) {
+        const g = sheetToGrid(wb.Sheets[sName]);
+        for (let r = 1; r <= Math.min(100, g.length); r++) {
+            if (/MEASUREMENT/i.test(cleanStr(getCell(g, r, 8)))) {
+                targetSheet = sName;
+                startRow = r + 1;
+                break;
+            }
+        }
+        if (targetSheet) break;
+    }
+
+    if (!targetSheet || startRow === 0) return;
+    const grid = sheetToGrid(wb.Sheets[targetSheet]);
+
+    let currentContainer = '', currentSeal = '';
+    for (let r = startRow; r <= grid.length; r++) {
+        const bText = cleanStr(getCell(grid, r, 2));
+        if (/CONTAINER NO/i.test(bText)) {
+            const parts = bText.split(':');
+            if (parts.length > 1) currentContainer = cleanStr(parts[1]);
+        } else if (/SEAL NO/i.test(bText)) {
+            const parts = bText.split(':');
+            if (parts.length > 1) currentSeal = cleanStr(parts[1]);
+        }
+
+        const colHVal = cleanStr(getCell(grid, r, 8));
+        if (colHVal !== '' && !isNaN(parseFloat(colHVal))) {
+            const rawItemText = cleanStr(getCell(grid, r + 1, 1));
+            const rawDescText = cleanStr(getCell(grid, r + 1, 2));
+            let strItemNo = '';
+            if (!(/E-mail/i.test(rawItemText) || /Tel/i.test(rawItemText))) {
+                const parsed = extractItemNoUniversal(rawItemText);
+                strItemNo = parsed ? parsed.itemNo : getNumbersOnly(rawItemText);
+            }
+            if (strItemNo !== '') {
+                const ctnQty = Math.round(toNum(getCell(grid, r, 5)));
+                const totalQty = toNum(getCell(grid, r, 4));
+                const pcsPerCtn = ctnQty > 0 ? Number((totalQty / ctnQty).toFixed(2)) : 0;
+
+                state.importRaw.push({
+                    source: 'FTY',
+                    itemNo: strItemNo,
+                    ctnQty: ctnQty,
+                    pcsCtn: pcsPerCtn,
+                    ttlQty: totalQty,
+                    gw: toNum(getCell(grid, r, 6)),
+                    nw: toNum(getCell(grid, r, 7)),
+                    size1: toNum(getCell(grid, r, 8)),
+                    size2: toNum(getCell(grid, r, 10)),
+                    size3: toNum(getCell(grid, r, 12)),
+                    desc1: (!/CONTAINER|SEAL/i.test(rawDescText)) ? rawDescText : '',
+                    desc2: '',
+                    desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                    desc4: '',
+                    desc5: `from 1 to ${ctnQty} CTN(S)`,
+                    descSP: '',
+                    qIndex: 0,
+                    containerNo: currentContainer,
+                    sealNo: currentSeal,
+                    colT: '',
+                    colU: '',
+                    checked: true
+                });
+            }
+        }
+    }
+}
+
+function parseFTY_FuMan(wb) {
+    wb.SheetNames.forEach(sheetName => {
+        const grid = sheetToGrid(wb.Sheets[sheetName]);
+        let headerRow = 0, startRow = 0, colDesc = 0;
+        let colCtn = 0, colPcs = 0, colTtl = 0, colGW = 0, colNW = 0;
+        let colSize1 = 0, colSize2 = 0, colSize3 = 0;
+
+        for (let r = 1; r <= Math.min(100, grid.length); r++) {
+            for (let c = 1; c <= 65; c++) {
+                if (/PRODUCT DESCRIPTION/i.test(cleanStr(getCell(grid, r, c)))) {
+                    headerRow = r;
+                    startRow = r + 1;
+                    colDesc = c;
+                    break;
+                }
+            }
+            if (headerRow > 0) break;
+        }
+
+        if (headerRow > 0) {
+            for (let hdrCol = 1; hdrCol <= 65; hdrCol++) {
+                const hdrText = cleanStr(getCell(grid, headerRow, hdrCol)).toUpperCase();
+                if (hdrText.includes('NO. OF PACKAGES')) colCtn = hdrCol;
+                else if (hdrText.includes('CONTENTS')) colPcs = hdrCol;
+                else if (hdrText.includes('TOTAL QUANTITIES')) colTtl = hdrCol;
+                else if (hdrText.includes('G.W.')) colGW = hdrCol;
+                else if (hdrText.includes('N.W.')) colNW = hdrCol;
+
+                const subHdrText = cleanStr(getCell(grid, headerRow + 1, hdrCol)).toUpperCase();
+                if (subHdrText.includes('(CM)')) {
+                    if (colSize1 === 0) colSize1 = hdrCol;
+                    else if (colSize2 === 0) colSize2 = hdrCol;
+                    else if (colSize3 === 0) colSize3 = hdrCol;
+                }
+            }
+
+            if (colCtn === 0) colCtn = 7;
+            if (colPcs === 0) colPcs = 17;
+            if (colTtl === 0) colTtl = 22;
+            if (colGW === 0) colGW = colDesc + 4;
+            if (colNW === 0) colNW = colDesc + 10;
+            if (colSize1 === 0) colSize1 = colDesc + 12;
+            if (colSize2 === 0) colSize2 = colDesc + 18;
+            if (colSize3 === 0) colSize3 = colDesc + 24;
+
+            let foundFirstItem = false, blankCount = 0;
+            for (let r = startRow; r <= grid.length; r++) {
+                const zVal = cleanStr(getCell(grid, r, colDesc));
+                if (zVal === '') {
+                    if (foundFirstItem) {
+                        blankCount++;
+                        if (blankCount >= 4) break;
+                    }
+                } else {
+                    let isMatch = false, strItemNo = '';
+                    if (!(/E-mail/i.test(zVal) || /Tel/i.test(zVal))) {
+                        if (/^J\d{7}/i.test(zVal)) {
+                            strItemNo = zVal.substring(1, 8);
+                            isMatch = true;
+                        } else if (/^\d{7}/.test(zVal)) {
+                            strItemNo = zVal.substring(0, 7);
+                            isMatch = true;
+                        }
+                    }
+
+                    if (isMatch) {
+                        foundFirstItem = true;
+                        blankCount = 0;
+                        let ctnQty = Math.round(toNum(getCell(grid, r, colCtn)));
+                        if (ctnQty === 0) ctnQty = Math.round(toNum(getCell(grid, r, 4)));
+                        const pcsPerCtn = Math.round(toNum(getCell(grid, r, colPcs)));
+                        const ttlQty = Math.round(toNum(getCell(grid, r, colTtl)));
+                        if (ctnQty === 0 && pcsPerCtn > 0) ctnQty = Math.floor(ttlQty / pcsPerCtn);
+
+                        const strDesc1 = cleanStr(getCell(grid, r + 1, colDesc));
+                        state.importRaw.push({
+                            source: 'FTY',
+                            itemNo: strItemNo,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: ttlQty,
+                            gw: toNum(getCell(grid, r, colGW)),
+                            nw: toNum(getCell(grid, r, colNW)),
+                            size1: toNum(getCell(grid, r, colSize1)),
+                            size2: toNum(getCell(grid, r, colSize2)),
+                            size3: toNum(getCell(grid, r, colSize3)),
+                            desc1: strDesc1,
+                            desc2: '',
+                            desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                            desc4: '',
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            descSP: '',
+                            qIndex: 0,
+                            containerNo: '',
+                            sealNo: '',
+                            colT: '',
+                            colU: '',
+                            checked: true
+                        });
+                        r++;
+                    } else if (foundFirstItem) {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+function parseFTY_IK(wb) {
+    for (const sheetName of wb.SheetNames) {
+        if (sheetName.toUpperCase().includes('PACKING LIST') || /^PL$/i.test(sheetName.trim())) {
+            const grid = sheetToGrid(wb.Sheets[sheetName]);
+            let startRow = 0;
+            for (let r = 1; r <= Math.min(100, grid.length); r++) {
+                if (cleanStr(getCell(grid, r, 3)).toUpperCase().includes('ITEM NO.')) {
+                    startRow = r + 1;
+                    break;
+                }
+            }
+            if (startRow > 0) {
+                let foundFirstItem = false, blankCount = 0;
+                for (let r = startRow; r <= grid.length; r++) {
+                    const cVal = cleanStr(getCell(grid, r, 3));
+                    let isMatchIK = false, strItemNo = '';
+                    if (!(/E-mail/i.test(cVal) || /Tel/i.test(cVal))) {
+                        if (/^J\d{7}/i.test(cVal)) {
+                            strItemNo = cVal.substring(1, 8);
+                            isMatchIK = true;
+                        } else if (/^\d{7}/.test(cVal)) {
+                            strItemNo = cVal.substring(0, 7);
+                            isMatchIK = true;
+                        }
+                    }
+
+                    if (isMatchIK) {
+                        foundFirstItem = true;
+                        blankCount = 0;
+                        const ctnQty = Math.round(toNum(getCell(grid, r, 2)));
+                        const strDesc1 = cleanStr(getCell(grid, r, 4));
+                        const pcsPerCtn = Math.round(toNum(getCell(grid, r, 6)));
+                        const sizeRaw = cleanStr(getCell(grid, r, 7)).toUpperCase().replace(/\*/g, 'X');
+                        const ttlQty = Math.round(toNum(getCell(grid, r, 8)));
+                        const gwVal = toNum(getCell(grid, r, 9));
+                        const nwVal = toNum(getCell(grid, r, 10));
+
+                        const dims = parseDimensionsSmart(sizeRaw, '', '', true);
+
+                        state.importRaw.push({
+                            source: 'FTY',
+                            itemNo: strItemNo,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: ttlQty,
+                            gw: gwVal,
+                            nw: nwVal,
+                            size1: dims.size1,
+                            size2: dims.size2,
+                            size3: dims.size3,
+                            desc1: strDesc1,
+                            desc2: '',
+                            desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                            desc4: '',
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            descSP: '',
+                            qIndex: 0,
+                            containerNo: '',
+                            sealNo: '',
+                            colT: '',
+                            colU: '',
+                            checked: true
+                        });
+                    } else if (foundFirstItem) {
+                        blankCount++;
+                        if (blankCount >= 5) break;
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+
+function parseFTY_KF(wb) {
+    const grid = sheetToGrid(wb.Sheets[wb.SheetNames[0]]);
+    let currentContainer = '', currentSeal = '';
+
+    for (let r = 1; r <= grid.length; r++) {
+        const cellText = cleanStr(getCell(grid, r, 1));
+        if (/Container No\./i.test(cellText)) {
+            currentContainer = cleanStr(getCell(grid, r, 2));
+            currentSeal = cleanStr(getCell(grid, r, 5));
+            continue;
+        }
+
+        const parsed = extractItemNoUniversal(cellText);
+        if (parsed) {
+            const descText = cleanStr(getCell(grid, r, 3));
+            const totalQty = Math.round(toNum(getCell(grid, r, 4)));
+            const pcsPerCtn = Math.round(toNum(getCell(grid, r, 5)));
+            const ctnQty = Math.round(toNum(getCell(grid, r, 6)));
+            if (ctnQty === 0 && totalQty === 0) continue;
+
+            state.importRaw.push({
+                source: 'FTY',
+                itemNo: parsed.itemNo,
+                ctnQty: ctnQty,
+                pcsCtn: pcsPerCtn,
+                ttlQty: totalQty,
+                gw: toNum(getCell(grid, r, 7)),
+                nw: toNum(getCell(grid, r, 9)),
+                size1: toNum(getCell(grid, r, 11)),
+                size2: toNum(getCell(grid, r, 13)),
+                size3: toNum(getCell(grid, r, 15)),
+                desc1: descText,
+                desc2: '',
+                desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                desc4: '',
+                desc5: `from 1 to ${ctnQty} CTN(S)`,
+                descSP: '',
+                qIndex: 0,
+                containerNo: currentContainer,
+                sealNo: currentSeal,
+                colT: parsed.colT,
+                colU: parsed.colU,
+                checked: true
+            });
+        }
+    }
+}
+
+function parseFTY_RS(wb) {
+    const grid = sheetToGrid(wb.Sheets[wb.SheetNames[0]]);
+    let currentContainer = '', currentSeal = '';
+    let blankItemCount = 0;
+    let prevItemNo = '', prevGwVal = 0, prevNwVal = 0, prevSize1 = 0, prevSize2 = 0, prevSize3 = 0;
+
+    for (let r = 1; r <= grid.length; r++) {
+        const lineText = cleanStr(getCell(grid, r, 1));
+        if (/Container No\./i.test(lineText)) {
+            const cMatch = lineText.match(/Container No\.:\s*([^\s\r\n]+)/i);
+            if (cMatch) currentContainer = cMatch[1];
+            const sMatch = lineText.match(/Seal No\.:\s*([^\s\r\n]+)/i);
+            if (sMatch) currentSeal = sMatch[1];
+        }
+
+        let colFVal = cleanStr(getCell(grid, r, 6));
+        if (/E-mail/i.test(colFVal) || /Tel/i.test(colFVal)) colFVal = '';
+        if (/^(TOTAL|SUMMARY|GRAND TOTAL)$/i.test(colFVal)) break;
+
+        if (/^J\d{7}/i.test(colFVal) || /^\d{7}/.test(colFVal)) {
+            blankItemCount = 0;
+            const itemNo = /^J/i.test(colFVal) ? colFVal.substring(1, 8) : colFVal.substring(0, 7);
+            let ctnQty = 0, totalQty = 0, gwVal = 0, nwVal = 0, descText = '', size1 = 0, size2 = 0, size3 = 0;
+
+            if (toNum(getCell(grid, r, 5)) > 0 || /\sBOX/i.test(colFVal) || /\sSHEET/i.test(colFVal)) {
+                ctnQty = Math.round(toNum(getCell(grid, r, 3)));
+                totalQty = toNum(getCell(grid, r, 5));
+                gwVal = toNum(getCell(grid, r - 1, 8));
+                nwVal = toNum(getCell(grid, r - 1, 9));
+                descText = colFVal;
+                if (itemNo === prevItemNo) {
+                    if (!gwVal) gwVal = prevGwVal;
+                    if (!nwVal) nwVal = prevNwVal;
+                }
+            } else {
+                ctnQty = Math.round(toNum(getCell(grid, r - 1, 3)));
+                totalQty = toNum(getCell(grid, r - 1, 5));
+                gwVal = toNum(getCell(grid, r - 1, 8));
+                nwVal = toNum(getCell(grid, r - 1, 9));
+                descText = cleanStr(getCell(grid, r + 1, 6));
+                const nextLine = cleanStr(getCell(grid, r + 2, 6));
+                if (nextLine !== '' && !(/^J\d{7}/i.test(nextLine))) {
+                    descText += ' ' + nextLine;
+                }
+
+                const sizeRaw = cleanStr(getCell(grid, r - 1, 6));
+                const lastSpace = sizeRaw.lastIndexOf(' ');
+                let sizeStr = (lastSpace >= 0 ? sizeRaw.substring(lastSpace + 1) : sizeRaw).toLowerCase().replace(/cm/g, '').replace(/\*/g, 'x');
+                const sizeArr = sizeStr.split('x');
+                if (sizeArr.length >= 1) size1 = toNum(sizeArr[0]);
+                if (sizeArr.length >= 2) size2 = toNum(sizeArr[1]);
+                if (sizeArr.length >= 3) size3 = toNum(sizeArr[2]);
+
+                if (itemNo === prevItemNo) {
+                    if (!gwVal) gwVal = prevGwVal;
+                    if (!nwVal) nwVal = prevNwVal;
+                    if (!size1) size1 = prevSize1;
+                    if (!size2) size2 = prevSize2;
+                    if (!size3) size3 = prevSize3;
+                }
+            }
+
+            prevItemNo = itemNo;
+            if (gwVal) prevGwVal = gwVal;
+            if (nwVal) prevNwVal = nwVal;
+            if (size1) prevSize1 = size1;
+            if (size2) prevSize2 = size2;
+            if (size3) prevSize3 = size3;
+
+            const pcsPerCtn = ctnQty > 0 ? (totalQty / ctnQty) : 0;
+            state.importRaw.push({
+                source: 'FTY',
+                itemNo: itemNo,
+                ctnQty: ctnQty,
+                pcsCtn: pcsPerCtn,
+                ttlQty: totalQty,
+                gw: gwVal,
+                nw: nwVal,
+                size1: size1,
+                size2: size2,
+                size3: size3,
+                desc1: descText,
+                desc2: '',
+                desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                desc4: '',
+                desc5: `from 1 to ${ctnQty} CTN(S)`,
+                descSP: '',
+                qIndex: 0,
+                containerNo: currentContainer,
+                sealNo: currentSeal,
+                colT: '',
+                colU: '',
+                checked: true
+            });
+        } else if (colFVal === '') {
+            blankItemCount++;
+            if (blankItemCount >= 30) break;
+        } else {
+            blankItemCount = 0;
+        }
+    }
+}
+
+function renumberImportRaw() {
+    state.importRaw.forEach((row, idx) => {
+        row.qIndex = idx + 1;
+    });
+}
+
+// ============================================================================
+// STEP 3: PIPELINE ENGINE
+// ============================================================================
+function recalculatePipeline() {
+    buildFinalizeFromRaw();
+    buildEditedItemFromFinalize();
+    populateAllFilterDropdowns();
+    renderAllViews();
+}
+
+function buildFinalizeFromRaw() {
+    state.finalizeRows = [];
+    const dictFirstPcs = {};
+    const dictSubseqMerged = {};
+    const dictSubseqMergedNum = {};
+    let combineCounter = 0;
+
+    state.importRaw.forEach(raw => {
+        if (raw.source === 'FTY' && raw.checked && raw.itemNo) {
+            const strItemNo = raw.itemNo;
+            const ctnQty = Math.round(toNum(raw.ctnQty));
+            const pcsPerCtn = toNum(raw.pcsCtn);
+            const totalQty = toNum(raw.ttlQty);
+
+            if (dictFirstPcs[strItemNo] === undefined) {
+                dictFirstPcs[strItemNo] = pcsPerCtn;
+                combineCounter++;
+                state.finalizeRows.push({
+                    ...raw,
+                    ctnQty: ctnQty,
+                    pcsCtn: pcsPerCtn,
+                    ttlQty: totalQty,
+                    desc5: `from 1 to ${ctnQty} CTN(S)`,
+                    combineNo: combineCounter,
+                    combineOrNot: false
+                });
+            } else {
+                if (Math.round(pcsPerCtn * 100) === Math.round(dictFirstPcs[strItemNo] * 100)) {
+                    if (dictSubseqMerged[strItemNo] === undefined) {
+                        combineCounter++;
+                        dictSubseqMergedNum[strItemNo] = combineCounter;
+                        const finIdx = state.finalizeRows.length;
+                        dictSubseqMerged[strItemNo] = finIdx;
+
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: totalQty,
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            combineNo: combineCounter,
+                            combineOrNot: false
+                        });
+                    } else {
+                        const firstSubseqIdx = dictSubseqMerged[strItemNo];
+                        state.finalizeRows[firstSubseqIdx].combineOrNot = true;
+
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: totalQty,
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            combineNo: dictSubseqMergedNum[strItemNo],
+                            combineOrNot: true
+                        });
+                    }
+                } else {
+                    const loopCtn = ctnQty > 0 ? ctnQty : 1;
+                    for (let i = 1; i <= loopCtn; i++) {
+                        combineCounter++;
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: 1,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: pcsPerCtn,
+                            desc5: 'from 1 to 1 CTN(S)',
+                            combineNo: combineCounter,
+                            combineOrNot: false
+                        });
+                    }
+                }
+            }
+        }
+    });
+}
+
+function buildEditedItemFromFinalize() {
+    state.editedItems = [];
+    const dictSAP = {};
+
+    state.importRaw.forEach(raw => {
+        if (raw.source === 'SAP' && raw.itemNo && !dictSAP[raw.itemNo]) {
+            dictSAP[raw.itemNo] = {
+                valK: (raw.desc1 && raw.desc1 !== '0') ? raw.desc1 : '',
+                valL: (raw.desc2 && raw.desc2 !== '0') ? raw.desc2 : '',
+                valN: (raw.desc4 && raw.desc4 !== '0') ? raw.desc4 : '',
+                valP: (raw.descSP && raw.descSP !== '0') ? raw.descSP : ''
+            };
+        }
+    });
+
+    const dictCombine = {};
+
+    state.finalizeRows.forEach(fin => {
+        const itemNo = fin.itemNo;
+        const pcsCtn = String(fin.pcsCtn);
+        const isCombined = Boolean(fin.combineOrNot);
+        const dictKey = `${itemNo}|${pcsCtn}`;
+
+        const sap = dictSAP[itemNo] || { valK: '', valL: '', valN: '', valP: '' };
+        const resolvedK = fin.desc1 || sap.valK;
+        const resolvedL = fin.desc2 || sap.valL;
+        const resolvedN = fin.desc4 || sap.valN;
+        const resolvedP = fin.descSP || sap.valP;
+
+        if (isCombined) {
+            if (dictCombine[dictKey] === undefined) {
+                const newIdx = state.editedItems.length;
+                dictCombine[dictKey] = newIdx;
+                state.editedItems.push({
+                    ...fin,
+                    desc1: resolvedK,
+                    desc2: resolvedL,
+                    desc4: resolvedN,
+                    descSP: resolvedP,
+                    desc5: `from 1 to ${fin.ctnQty} CTN(S)`
+                });
+            } else {
+                const trgtIdx = dictCombine[dictKey];
+                const target = state.editedItems[trgtIdx];
+                target.ctnQty = toNum(target.ctnQty) + toNum(fin.ctnQty);
+                target.ttlQty = toNum(target.ttlQty) + toNum(fin.ttlQty);
+                target.desc5 = `from 1 to ${target.ctnQty} CTN(S)`;
+            }
+        } else {
+            state.editedItems.push({
+                ...fin,
+                desc1: resolvedK,
+                desc2: resolvedL,
+                desc4: resolvedN,
+                descSP: resolvedP,
+                desc5: `from 1 to ${fin.ctnQty} CTN(S)`
+            });
+        }
+    });
+}
+
+// ============================================================================
+// STEP 4: UI RENDERING & FILTERABLE TABLES
+// ============================================================================
+function populateHeaderUI() {
+    document.getElementById('hdrInvoice').value = state.headerInfo.invoiceNo;
+    document.getElementById('hdrSoldTo').value = state.headerInfo.soldTo.join('\n');
+    document.getElementById('hdrShippedPer').value = state.headerInfo.shippedPer;
+    document.getElementById('hdrSailing').value = state.headerInfo.sailingOn;
+    document.getElementById('hdrFrom').value = state.headerInfo.from;
+    document.getElementById('hdrTo').value = state.headerInfo.to;
+    document.getElementById('hdrOrigin').value = state.headerInfo.origin;
+    document.getElementById('hdrPayment').value = state.headerInfo.payment;
+    document.getElementById('hdrDeliveryNo').value = state.headerInfo.deliveryNo;
+    document.getElementById('hdrDate').value = state.headerInfo.date;
+    document.getElementById('ftrLC').value = state.footerInfo.lcLines.join('\n');
+    document.getElementById('ftrRemarks').value = state.footerInfo.remarksLines.join('\n');
+}
+
+function syncHeaderFromUI() {
+    state.headerInfo.invoiceNo = document.getElementById('hdrInvoice').value.trim();
+    state.headerInfo.soldTo = document.getElementById('hdrSoldTo').value.split('\n').map(s => s.trim()).filter(Boolean);
+    state.headerInfo.shippedPer = document.getElementById('hdrShippedPer').value.trim();
+    state.headerInfo.sailingOn = document.getElementById('hdrSailing').value.trim();
+    state.headerInfo.from = document.getElementById('hdrFrom').value.trim();
+    state.headerInfo.to = document.getElementById('hdrTo').value.trim();
+    state.headerInfo.origin = document.getElementById('hdrOrigin').value.trim();
+    state.headerInfo.payment = document.getElementById('hdrPayment').value.trim();
+    state.headerInfo.deliveryNo = document.getElementById('hdrDeliveryNo').value.trim();
+    state.headerInfo.date = document.getElementById('hdrDate').value.trim();
+    state.footerInfo.lcLines = document.getElementById('ftrLC').value.split('\n').map(s => s.trim()).filter(Boolean);
+    state.footerInfo.remarksLines = document.getElementById('ftrRemarks').value.split('\n').map(s => s.trim()).filter(Boolean);
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function updateSummaryMetrics() {
+    const sapRows = state.importRaw.filter(r => r.source === 'SAP');
+    const totalCtns = getFinalTotalCartons();
+
+    document.getElementById('statSapCount').textContent = sapRows.length;
+    document.getElementById('statFtyCount').textContent = state.editedItems.length;
+    document.getElementById('statTotalCtns').textContent = `${totalCtns} CTN(S)`;
+    document.getElementById('summaryInvoiceNo').textContent = `Invoice: ${state.headerInfo.invoiceNo || '--'}`;
+    document.getElementById('badgeFinalizeCount').textContent = state.finalizeRows.length;
+    document.getElementById('badgeEditedCount').textContent = state.editedItems.length;
+}
+
+function renderAllViews() {
+    const ftyRows = state.importRaw.filter(r => r.source === 'FTY');
+    const checkedFty = ftyRows.filter(r => r.checked);
+
+    updateSummaryMetrics();
+    renderMenuItemList(ftyRows);
+    renderUniqueItemSummary(checkedFty);
+    renderFinalizeTable();
+    renderEditedTable();
+    renderRawInspector();
+    renderPreview();
+}
+
+function renderMenuItemList(ftyRows) {
+    const tbody = document.getElementById('menuItemListBody');
+    const badge = document.getElementById('menuFilterCountBadge');
+
+    if (ftyRows.length === 0) {
+        badge.textContent = '0 / 0';
+        tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">No Factory items imported yet. Upload SAP & Factory files above.</td></tr>`;
+        return;
+    }
+
+    const filtered = ftyRows.filter(r => doesMenuRowMatchFilter(r));
+    badge.textContent = `Showing ${filtered.length} of ${ftyRows.length}`;
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">No items match your current Menu filter.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(r => {
+        const isSelected = r.qIndex === state.selectedQIndex;
+        return `
+        <tr onclick="selectInspectorRow(${r.qIndex})" class="cursor-pointer hover:bg-blue-50/70 transition ${isSelected ? 'row-selected' : ''}">
+            <td class="py-2 px-2 text-center" onclick="event.stopPropagation()">
+                <input type="checkbox" ${r.checked ? 'checked' : ''} onchange="toggleMenuItem(${r.qIndex}, this.checked)" class="w-4 h-4 text-blue-600 rounded">
+            </td>
+            <td class="py-2 px-2 text-center font-mono text-slate-500">${r.qIndex}</td>
+            <td class="py-2 px-2 font-bold text-slate-800">${escapeAttr(r.itemNo)}</td>
+            <td class="py-2 px-2 text-right font-mono">${r.ctnQty}</td>
+            <td class="py-2 px-2 text-right font-mono">${r.pcsCtn}</td>
+            <td class="py-2 px-2 text-right font-mono">${toNum(r.ttlQty).toLocaleString()}</td>
+            <td class="py-2 px-2 truncate max-w-[200px]" title="${escapeAttr(r.desc1 || '-')}">${escapeAttr(r.desc1 || '-')}</td>
+        </tr>`;
+    }).join('');
+}
+
+function renderUniqueItemSummary(checkedFty) {
+    const tbody = document.getElementById('uniqueSummaryBody');
+    if (checkedFty.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="2" class="py-4 text-center text-slate-400">No active FTY rows</td></tr>`;
+        return;
+    }
+    const groups = {};
+    checkedFty.forEach(r => {
+        const key = `${r.itemNo}|${r.pcsCtn}`;
+        if (!groups[key]) groups[key] = { itemNo: r.itemNo, pcsCtn: r.pcsCtn, sumCtn: 0, sumTtl: 0 };
+        groups[key].sumCtn += toNum(r.ctnQty);
+        groups[key].sumTtl += toNum(r.ttlQty);
+    });
+
+    tbody.innerHTML = Object.values(groups).map(g => `
+        <tr class="hover:bg-blue-50/50 cursor-pointer" onclick="quickFilterByItemNo('${escapeAttr(g.itemNo)}')" title="Click to filter Menu by this Item#">
+            <td class="py-1.5 px-3 font-bold text-blue-700 hover:underline">${escapeAttr(g.itemNo)}</td>
+            <td class="py-1.5 px-3 font-mono text-slate-600">CTN: ${g.sumCtn} / pcs.ctn: ${g.pcsCtn} / Total: ${g.sumTtl.toLocaleString()}pcs</td>
+        </tr>
+    `).join('');
+}
+
+function quickFilterByItemNo(itemNo) {
+    document.getElementById('filterMenuItemSelect').value = itemNo;
+    applyMenuFilter();
+}
+
+function selectInspectorRow(qIndex) {
+    state.selectedQIndex = qIndex;
+    const row = state.importRaw.find(r => r.qIndex === qIndex);
+    if (!row) return;
+
+    const sapRow = state.importRaw.find(r => r.source === 'SAP' && r.itemNo === row.itemNo);
+
+    document.getElementById('editorIndexBadge').textContent = `#${qIndex} (Item ${row.itemNo})`;
+    document.getElementById('btnCurrIdx').textContent = qIndex;
+    document.getElementById('editDescSP').value = row.descSP || (sapRow ? sapRow.descSP : '');
+    document.getElementById('editItemNoDisplay').value = formatItemNoString(row);
+    document.getElementById('editDesc1').value = row.desc1 || (sapRow ? sapRow.desc1 : '');
+    document.getElementById('editDesc2').value = row.desc2 || (sapRow ? sapRow.desc2 : '');
+    document.getElementById('editDesc3').textContent = row.desc3 || '--';
+    document.getElementById('editDesc4').textContent = row.desc4 || (sapRow ? sapRow.desc4 : '--');
+    document.getElementById('editDesc5').textContent = row.desc5 || '--';
+    document.getElementById('editCntrSeal').textContent = `${row.containerNo || 'N/A'} / ${row.sealNo || 'N/A'}`;
+    document.getElementById('editWeight').textContent = `G.W: ${toNum(row.gw).toFixed(2)}KG   N.W: ${toNum(row.nw).toFixed(2)}KG`;
+    document.getElementById('editDim').textContent = `${row.size1} x ${row.size2} x ${row.size3} cm`;
+
+    renderMenuItemList(state.importRaw.filter(r => r.source === 'FTY'));
+}
+
+function saveDescriptionEdit(applyToAllMatchingItems) {
+    if (!state.selectedQIndex) {
+        alert("Please click an item row in the Factory Item List first.");
+        return;
+    }
+    const targetRow = state.importRaw.find(r => r.qIndex === state.selectedQIndex);
+    if (!targetRow) return;
+
+    const newP = document.getElementById('editDescSP').value.trim();
+    const newK = document.getElementById('editDesc1').value.trim();
+    const newL = document.getElementById('editDesc2').value.trim();
+
+    if (applyToAllMatchingItems) {
+        state.importRaw.forEach(r => {
+            if (r.itemNo === targetRow.itemNo) {
+                r.descSP = newP;
+                r.desc1 = newK;
+                r.desc2 = newL;
+            }
+        });
+    } else {
+        targetRow.descSP = newP;
+        targetRow.desc1 = newK;
+        targetRow.desc2 = newL;
+    }
+
+    recalculatePipeline();
+}
+
+function toggleMenuItem(qIndex, isChecked) {
+    const row = state.importRaw.find(r => r.qIndex === qIndex);
+    if (row) {
+        row.checked = isChecked;
+        recalculatePipeline();
+    }
+}
+
+function toggleVisibleMenuItems(isChecked) {
+    state.importRaw.forEach(r => {
+        if (r.source === 'FTY' && doesMenuRowMatchFilter(r)) {
+            r.checked = isChecked;
+        }
+    });
+    recalculatePipeline();
+}
+
+function renderFinalizeTable() {
+    const tbody = document.getElementById('finalizeTableBody');
+    const badge = document.getElementById('finFilterCountBadge');
+
+    if (state.finalizeRows.length === 0) {
+        badge.textContent = 'Showing 0 of 0';
+        tbody.innerHTML = `<tr><td colspan="12" class="py-8 text-center text-slate-400">No Finalize rows generated.</td></tr>`;
+        return;
+    }
+
+    const visibleEntries = state.finalizeRows
+        .map((fin, idx) => ({ fin, idx }))
+        .filter(entry => doesFinalizeRowMatchFilter(entry.fin));
+
+    badge.textContent = `Showing ${visibleEntries.length} of ${state.finalizeRows.length}`;
+
+    if (visibleEntries.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" class="py-8 text-center text-slate-400">No Finalize rows match your current filter.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = visibleEntries.map(({ fin, idx }) => `
+        <tr class="hover:bg-slate-50">
+            <td class="py-2 px-3 text-center font-bold text-slate-700">${fin.combineNo}</td>
+            <td class="py-2 px-3 text-center bg-amber-50">
+                <input type="checkbox" ${fin.combineOrNot ? 'checked' : ''} onchange="toggleFinalizeCombine(${idx}, this.checked)" class="w-4 h-4 text-amber-600 rounded cursor-pointer">
+            </td>
+            <td class="py-2 px-3 font-bold text-slate-800">${escapeAttr(fin.itemNo)}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.ctnQty}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.pcsCtn}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.ttlQty}</td>
+            <td class="py-2 px-3 text-right font-mono">${toNum(fin.gw).toFixed(2)}</td>
+            <td class="py-2 px-3 text-right font-mono">${toNum(fin.nw).toFixed(2)}</td>
+            <td class="py-2 px-3 font-mono">${fin.size1} × ${fin.size2} × ${fin.size3}</td>
+            <td class="py-2 px-3">${escapeAttr(fin.desc1 || '')}</td>
+            <td class="py-2 px-3 font-mono">${escapeAttr(fin.desc5)}</td>
+            <td class="py-2 px-3 font-mono text-slate-500">${escapeAttr(fin.containerNo || '')} ${fin.sealNo ? '/ ' + escapeAttr(fin.sealNo) : ''}</td>
+        </tr>
+    `).join('');
+}
+
+function toggleFinalizeCombine(finIdx, isCombined) {
+    if (state.finalizeRows[finIdx]) {
+        state.finalizeRows[finIdx].combineOrNot = isCombined;
+        buildEditedItemFromFinalize();
+        populateAllFilterDropdowns();
+        renderFinalizeTable();
+        renderEditedTable();
+        updateSummaryMetrics();
+        renderPreview();
+    }
+}
+
+function toggleVisibleFinalizeCombine(isCombined) {
+    state.finalizeRows.forEach(fin => {
+        if (doesFinalizeRowMatchFilter(fin)) {
+            fin.combineOrNot = isCombined;
+        }
+    });
+    buildEditedItemFromFinalize();
+    populateAllFilterDropdowns();
+    renderFinalizeTable();
+    renderEditedTable();
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+// ============================================================================
+// FULL MANUAL EDITING & FILTERING FOR TAB 3 (EditedItem Table)
+// ============================================================================
+function renderEditedTable() {
+    const tbody = document.getElementById('editedTableBody');
+    const badge = document.getElementById('edFilterCountBadge');
+
+    if (state.editedItems.length === 0) {
+        badge.textContent = 'Showing 0 of 0';
+        tbody.innerHTML = `<tr><td colspan="16" class="py-8 text-center text-slate-400">No EditedItem rows available. Click "➕ Add Blank Row" or import files above.</td></tr>`;
+        return;
+    }
+
+    const visibleEntries = state.editedItems
+        .map((ed, idx) => ({ ed, idx }))
+        .filter(entry => doesEditedRowMatchFilter(entry.ed));
+
+    badge.textContent = `Showing ${visibleEntries.length} of ${state.editedItems.length}`;
+
+    if (visibleEntries.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="16" class="py-8 text-center text-slate-400">No EditedItem rows match your current filter.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = visibleEntries.map(({ ed, idx }) => `
+        <tr class="hover:bg-blue-50/30 align-top">
+            <td class="py-2 px-2 text-center text-slate-400 font-mono pt-3">${idx + 1}</td>
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.itemNo)}" oninput="updateEditedCell(${idx}, 'itemNo', this.value)" class="cell-input w-24 font-bold text-slate-800">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="number" step="1" value="${escapeAttr(ed.ctnQty)}" oninput="updateEditedCell(${idx}, 'ctnQty', this.value)" class="cell-input w-20 text-right font-mono font-bold text-blue-700">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="number" step="any" value="${escapeAttr(ed.pcsCtn)}" oninput="updateEditedCell(${idx}, 'pcsCtn', this.value)" class="cell-input w-16 text-right font-mono">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="number" step="any" id="ed-ttlQty-${idx}" value="${escapeAttr(ed.ttlQty)}" oninput="updateEditedCell(${idx}, 'ttlQty', this.value)" class="cell-input w-24 text-right font-mono bg-slate-50">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="number" step="0.01" value="${escapeAttr(ed.gw)}" oninput="updateEditedCell(${idx}, 'gw', this.value)" class="cell-input w-20 text-right font-mono">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="number" step="0.01" value="${escapeAttr(ed.nw)}" oninput="updateEditedCell(${idx}, 'nw', this.value)" class="cell-input w-20 text-right font-mono">
+            </td>
+            <td class="py-2 px-1.5">
+                <div class="flex items-center space-x-1">
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size1)}" oninput="updateEditedCell(${idx}, 'size1', this.value)" class="cell-input w-16 text-center font-mono" title="Size 1 (H)">
+                    <span class="text-slate-400">×</span>
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size2)}" oninput="updateEditedCell(${idx}, 'size2', this.value)" class="cell-input w-16 text-center font-mono" title="Size 2 (I)">
+                    <span class="text-slate-400">×</span>
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size3)}" oninput="updateEditedCell(${idx}, 'size3', this.value)" class="cell-input w-16 text-center font-mono" title="Size 3 (J)">
+                </div>
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.descSP || '')}" oninput="updateEditedCell(${idx}, 'descSP', this.value)" class="cell-input w-36" placeholder="Special Desc (P)">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.desc1 || '')}" oninput="updateEditedCell(${idx}, 'desc1', this.value)" class="cell-input w-48 font-semibold" placeholder="Main Desc 1 (K)">
+            </td>
+            <td class="py-2 px-1.5">
+                <textarea rows="2" oninput="updateEditedCell(${idx}, 'desc2', this.value)" class="cell-input w-52 font-mono text-[11px]" placeholder="Desc 2 (L)">${escapeAttr(ed.desc2 || '')}</textarea>
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="text" id="ed-desc3-${idx}" value="${escapeAttr(ed.desc3 || '')}" oninput="updateEditedCell(${idx}, 'desc3', this.value)" class="cell-input w-40 font-mono text-[11px]" placeholder="PCS PER MASTER CTN">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.desc4 || '')}" oninput="updateEditedCell(${idx}, 'desc4', this.value)" class="cell-input w-44 font-mono text-[11px]" placeholder="BARCODE NO.">
+            </td>
+            <td class="py-2 px-1.5">
+                <input type="text" id="ed-desc5-${idx}" value="${escapeAttr(ed.desc5 || '')}" oninput="updateEditedCell(${idx}, 'desc5', this.value)" class="cell-input w-36 font-mono text-[11px]" placeholder="from 1 to X CTN(S)">
+            </td>
+            <td class="py-2 px-1.5">
+                <div class="flex space-x-1">
+                    <input type="text" value="${escapeAttr(ed.containerNo || '')}" oninput="updateEditedCell(${idx}, 'containerNo', this.value)" class="cell-input w-24 font-mono text-[11px]" placeholder="Cntr#">
+                    <input type="text" value="${escapeAttr(ed.sealNo || '')}" oninput="updateEditedCell(${idx}, 'sealNo', this.value)" class="cell-input w-20 font-mono text-[11px]" placeholder="Seal#">
+                </div>
+            </td>
+            <td class="py-2 px-2 text-center pt-2.5">
+                <button onclick="deleteEditedRow(${idx})" class="text-rose-500 hover:text-rose-700 font-bold px-1.5 py-0.5 rounded hover:bg-rose-50 transition" title="Delete Row">🗑️</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateEditedCell(idx, field, val) {
+    const item = state.editedItems[idx];
+    if (!item) return;
+
+    if (['ctnQty', 'pcsCtn', 'ttlQty', 'gw', 'nw', 'size1', 'size2', 'size3'].includes(field)) {
+        item[field] = toNum(val);
+    } else {
+        item[field] = val;
+    }
+
+    if (field === 'ctnQty') {
+        const newTtl = toNum(item.ctnQty) * toNum(item.pcsCtn);
+        item.ttlQty = newTtl;
+        const ttlInput = document.getElementById(`ed-ttlQty-${idx}`);
+        if (ttlInput) ttlInput.value = newTtl;
+
+        if (!item.desc5 || /^from\s+1\s+to\s+\d+\s+CTN\(S\)$/i.test(item.desc5.trim())) {
+            item.desc5 = `from 1 to ${item.ctnQty} CTN(S)`;
+            const desc5Input = document.getElementById(`ed-desc5-${idx}`);
+            if (desc5Input) desc5Input.value = item.desc5;
+        }
+    }
+
+    if (field === 'pcsCtn') {
+        const newTtl = toNum(item.ctnQty) * toNum(item.pcsCtn);
+        item.ttlQty = newTtl;
+        const ttlInput = document.getElementById(`ed-ttlQty-${idx}`);
+        if (ttlInput) ttlInput.value = newTtl;
+
+        if (!item.desc3 || /^\d+(\.\d+)?PCS PER MASTER CTN\(S\)$/i.test(item.desc3.trim())) {
+            item.desc3 = `${item.pcsCtn}PCS PER MASTER CTN(S)`;
+            const desc3Input = document.getElementById(`ed-desc3-${idx}`);
+            if (desc3Input) desc3Input.value = item.desc3;
+        }
+    }
+
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function addEditedRow() {
+    state.editedItems.push({
+        source: 'FTY',
+        itemNo: '0000000',
+        ctnQty: 1,
+        pcsCtn: 1,
+        ttlQty: 1,
+        gw: 0,
+        nw: 0,
+        size1: 0,
+        size2: 0,
+        size3: 0,
+        descSP: '',
+        desc1: '',
+        desc2: '',
+        desc3: '1PCS PER MASTER CTN(S)',
+        desc4: '',
+        desc5: 'from 1 to 1 CTN(S)',
+        containerNo: '',
+        sealNo: '',
+        colT: '',
+        colU: ''
+    });
+    populateAllFilterDropdowns();
+    renderEditedTable();
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function deleteEditedRow(idx) {
+    state.editedItems.splice(idx, 1);
+    populateAllFilterDropdowns();
+    renderEditedTable();
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function renderRawInspector() {
+    const tbody = document.getElementById('rawInspectorBody');
+    if (state.importRaw.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="15" class="py-8 text-center text-slate-400">ImportRaw is empty.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = state.importRaw.map(r => `
+        <tr class="${r.source === 'SAP' ? 'bg-amber-50/40' : 'bg-white'} hover:bg-slate-100">
+            <td class="py-1.5 px-2 font-mono font-bold">${r.qIndex}</td>
+            <td class="py-1.5 px-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.source === 'SAP' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}">${r.source}</span></td>
+            <td class="py-1.5 px-2 font-bold">${escapeAttr(r.itemNo)}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.ctnQty}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.pcsCtn}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.ttlQty}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.gw}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.nw}</td>
+            <td class="py-1.5 px-2 font-mono">${r.size1}×${r.size2}×${r.size3}</td>
+            <td class="py-1.5 px-2">${escapeAttr(r.descSP || '')}</td>
+            <td class="py-1.5 px-2">${escapeAttr(r.desc1 || '')}</td>
+            <td class="py-1.5 px-2 whitespace-pre-line text-[10px]">${escapeAttr(r.desc2 || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.desc4 || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.containerNo || '')} ${escapeAttr(r.sealNo || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.colT || '')} / ${escapeAttr(r.colU || '')}</td>
+        </tr>
+    `).join('');
+}
+
+// ============================================================================
+// STEP 5: BODY & MERGED SHEET GENERATOR
+// ============================================================================
+function formatItemNoString(rowObj) {
+    const bVal = cleanStr(rowObj.itemNo);
+    let uVal = cleanStr(rowObj.colU);
+    let tVal = cleanStr(rowObj.colT);
+
+    if (!uVal) {
+        const matchFty = state.importRaw.find(r => r.source === 'FTY' && r.itemNo === bVal && r.colU);
+        if (matchFty) {
+            uVal = cleanStr(matchFty.colU);
+            tVal = cleanStr(matchFty.colT);
+        }
+    }
+
+    if (uVal !== '' && uVal !== bVal) {
+        if (tVal === '') return `Item No: (J${uVal}) J${bVal}`;
+        return `Item No: (J${uVal}) ${tVal}${bVal}`;
+    }
+    if (/^J/i.test(bVal)) return `Item No: ${bVal}`;
+    return `Item No: J${bVal}`;
+}
+
+function generateBodyRowsArray() {
+    const rows = [];
+    rows.push(['', '', '', '', '', '', '', '']);
+
+    state.editedItems.forEach(item => {
+        if (!cleanStr(item.itemNo)) return;
+        const itemNoStr = formatItemNoString(item);
+        const gwStr = `${toNum(item.gw).toFixed(2)}KG`;
+        const nwStr = `${toNum(item.nw).toFixed(2)}KG`;
+        const dimStr = `${toNum(item.size1).toFixed(3)} X ${toNum(item.size2).toFixed(3)} X ${toNum(item.size3).toFixed(3)}`;
+
+        if (cleanStr(item.descSP) !== '') {
+            rows.push(['', cleanStr(item.descSP), '', gwStr, nwStr, dimStr, '', '']);
+            rows.push(['', itemNoStr, '', '', '', '', '', '']);
+        } else {
+            rows.push(['', itemNoStr, '', gwStr, nwStr, dimStr, '', '']);
+        }
+
+        const colsKLMN = [
+            { val: item.desc1, keepMultiline: false },
+            { val: item.desc2, keepMultiline: true },
+            { val: item.desc3, keepMultiline: false },
+            { val: item.desc4, keepMultiline: false }
+        ];
+
+        colsKLMN.forEach(col => {
+            const rawText = cleanStr(col.val);
+            if (rawText !== '') {
+                if (col.keepMultiline) {
+                    rows.push(['', rawText, '', '', '', '', '', '']);
+                } else {
+                    rawText.split(/\r?\n/).forEach(line => {
+                        if (cleanStr(line) !== '') {
+                            rows.push(['', cleanStr(line), '', '', '', '', '', '']);
+                        }
+                    });
+                }
+            }
+        });
+
+        const oText = cleanStr(item.desc5);
+        const ctnLabel = `${cleanStr(item.ctnQty)} CTN(S)`;
+        if (oText !== '') {
+            const oLines = oText.split(/\r?\n/).map(s => cleanStr(s)).filter(Boolean);
+            oLines.forEach((line, idx) => {
+                const colAVal = (idx === oLines.length - 1) ? ctnLabel : '';
+                rows.push([colAVal, line, '', '', '', '', '', '']);
+            });
+        } else {
+            rows.push([ctnLabel, '', '', '', '', '', '', '']);
+        }
+
+        rows.push(['', '', '', '', '', '', '', '']);
+        rows.push(['', '', '', '', '', '', '', '']);
+        rows.push(['', '', '', '', '', '', '', '']);
+    });
+
+    return rows;
+}
+
+function renderPreview() {
+    const container = document.getElementById('packingListPreviewContainer');
+    const h = state.headerInfo;
+    const f = state.footerInfo;
+    const bodyRows = generateBodyRowsArray();
+    const totalCtns = getFinalTotalCartons();
+
+    let html = `
+        <div class="text-center mb-4">
+            <div class="text-base font-bold tracking-wide">BANDAI NAMCO ASIA CO., LTD.</div>
+            <div class="text-xs text-slate-600">Tel: (852) 2866 0229 Fax: (852) 2865 6798</div>
+            <div class="text-sm font-bold underline mt-2">Packing List</div>
+        </div>
+        <div class="grid grid-cols-12 gap-2 mb-4 text-xs">
+            <div class="col-span-2 font-semibold">Invoice No.:</div>
+            <div class="col-span-5 font-bold">${escapeAttr(h.invoiceNo)}</div>
+            <div class="col-span-2 font-semibold">Delivery No.:</div>
+            <div class="col-span-3">${escapeAttr(h.deliveryNo)}</div>
+
+            <div class="col-span-2 font-semibold">Sold To Messrs:</div>
+            <div class="col-span-5 whitespace-pre-line">${escapeAttr(h.soldTo.join('\n') || '')}</div>
+            <div class="col-span-2 font-semibold">Date:<br>Page:</div>
+            <div class="col-span-3">${escapeAttr(h.date)}<br>${escapeAttr(h.page || '1')}</div>
+
+            <div class="col-span-2 font-semibold">Shipped Per :</div>
+            <div class="col-span-10">${escapeAttr(h.shippedPer)}</div>
+            <div class="col-span-2 font-semibold">Sailing On or about:</div>
+            <div class="col-span-10">${escapeAttr(h.sailingOn)}</div>
+            <div class="col-span-2 font-semibold">From:</div>
+            <div class="col-span-4">${escapeAttr(h.from)}</div>
+            <div class="col-span-6">${escapeAttr(h.to)}</div>
+            <div class="col-span-2 font-semibold">Country of Origin:</div>
+            <div class="col-span-10">${escapeAttr(h.origin)}</div>
+            <div class="col-span-2 font-semibold">Payment:</div>
+            <div class="col-span-10">${escapeAttr(h.payment)}</div>
+        </div>
+        <table class="w-full border-collapse text-xs">
+            <thead>
+                <tr class="border-t border-b border-slate-900 font-bold">
+                    <th class="py-1.5 text-left w-1/5">No. of package</th>
+                    <th class="py-1.5 text-left w-2/5">Description of Goods</th>
+                    <th class="py-1.5 text-left w-[12%]">Gross Wt.</th>
+                    <th class="py-1.5 text-left w-[12%]">Net Wt.</th>
+                    <th class="py-1.5 text-left w-[16%]">Measurement(cm)</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    bodyRows.forEach(r => {
+        if (r.every(c => c === '')) {
+            html += `<tr class="h-3"><td colspan="5"></td></tr>`;
+        } else {
+            html += `
+                <tr>
+                    <td class="py-0.5 align-top font-semibold">${escapeAttr(r[0])}</td>
+                    <td class="py-0.5 align-top whitespace-pre-line">${escapeAttr(r[1])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[3])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[4])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[5])}</td>
+                </tr>
+            `;
+        }
+    });
+
+    html += `
+            </tbody>
+        </table>
+        <div class="mt-4 pt-2">
+            <div class="inline-block border-t border-b-4 border-double border-slate-900 font-bold py-1 pr-8 mb-4">
+                ${totalCtns} CTN(S)
+            </div>
+            <div class="grid grid-cols-12 gap-2 text-xs">
+                <div class="col-span-7 space-y-2">
+                    <div>
+                        <div class="font-bold">LC No. :</div>
+                        <div class="whitespace-pre-line pl-2">${escapeAttr(f.lcLines.join('\n'))}</div>
+                    </div>
+                    <div>
+                        <div class="font-bold">Remarks:</div>
+                        <div class="whitespace-pre-line pl-2">${escapeAttr(f.remarksLines.join('\n'))}</div>
+                    </div>
+                </div>
+                <div class="col-span-5 flex flex-col justify-between pt-6">
+                    <div>
+                        <div>FOR AND ON BEHALF OF</div>
+                        <div class="font-bold">Bandai Namco Asia Co., Ltd.</div>
+                    </div>
+                    <div class="border-t border-slate-900 pt-1 mt-12">
+                        AUTHORIZED SIGNATURES
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// ============================================================================
+// STEP 6: EXACT STYLED EXCEL EXPORT
+// ============================================================================
+async function exportMergedExcel() {
+    syncHeaderFromUI();
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Sheet1');
+
+    ws.columns = [
+        { key: 'A', width: 49.44 },
+        { key: 'B', width: 34.55 },
+        { key: 'C', width: 34.44 },
+        { key: 'D', width: 8.89 },
+        { key: 'E', width: 24.55 },
+        { key: 'F', width: 21.33 },
+        { key: 'G', width: 9.33 },
+        { key: 'H', width: 11.33 }
+    ];
+
+    const defaultFont = { name: 'Aptos Narrow', size: 11 };
+    const boldFont = { name: 'Aptos Narrow', size: 11, bold: true };
+
+    ws.getCell('C9').value = 'Tel: (852) 2866 0229 Fax: (852) 2865 6798';
+    ws.getCell('C11').value = 'Packing List';
+    ws.getCell('C11').font = boldFont;
+
+    ws.getCell('A13').value = 'Invoice No.:';
+    ws.getCell('B13').value = state.headerInfo.invoiceNo;
+    ws.getCell('F13').value = 'Delivery No.:';
+    ws.getCell('H13').value = state.headerInfo.deliveryNo ? (isNaN(state.headerInfo.deliveryNo) ? state.headerInfo.deliveryNo : Number(state.headerInfo.deliveryNo)) : '';
+
+    ws.getCell('A14').value = 'Sold To Messrs:';
+    ws.getCell('F14').value = 'Date:';
+    ws.getCell('H14').value = state.headerInfo.date;
+    ws.getCell('F15').value = 'Page:';
+    ws.getCell('H15').value = Number(state.headerInfo.page) || 1;
+
+    const addrLines = state.headerInfo.soldTo.length > 0 ? state.headerInfo.soldTo : [''];
+    const targetSpace = Math.max(2, addrLines.length);
+    for (let i = 0; i < addrLines.length; i++) {
+        ws.getCell(`B${14 + i}`).value = addrLines[i];
+    }
+
+    const shippedRow = 14 + targetSpace;
+    ws.getCell(`A${shippedRow}`).value = 'Shipped Per   :';
+    ws.getCell(`B${shippedRow}`).value = state.headerInfo.shippedPer;
+
+    ws.getCell(`A${shippedRow + 1}`).value = 'Sailing On or about:';
+    ws.getCell(`B${shippedRow + 1}`).value = state.headerInfo.sailingOn;
+
+    ws.getCell(`A${shippedRow + 2}`).value = 'From:';
+    ws.getCell(`B${shippedRow + 2}`).value = state.headerInfo.from;
+    ws.getCell(`C${shippedRow + 2}`).value = state.headerInfo.to;
+
+    ws.getCell(`A${shippedRow + 3}`).value = 'Country of Orgin:';
+    ws.getCell(`B${shippedRow + 3}`).value = state.headerInfo.origin;
+
+    ws.getCell(`A${shippedRow + 4}`).value = 'Payment:';
+    ws.getCell(`B${shippedRow + 4}`).value = state.headerInfo.payment;
+
+    const pkgHeaderRow = shippedRow + 6;
+    ws.getCell(`A${pkgHeaderRow}`).value = 'No. of package';
+    ws.getCell(`B${pkgHeaderRow}`).value = 'Description of Goods';
+    ws.getCell(`D${pkgHeaderRow}`).value = 'Gross Wt.';
+    ws.getCell(`E${pkgHeaderRow}`).value = 'Net Wt.';
+    ws.getCell(`F${pkgHeaderRow}`).value = 'Measurement(cm)';
+
+    for (let c = 1; c <= 6; c++) {
+        ws.getRow(pkgHeaderRow).getCell(c).border = { top: { style: 'thin' } };
+        ws.getRow(pkgHeaderRow + 1).getCell(c).border = { bottom: { style: 'thin' } };
+    }
+
+    let currentRow = pkgHeaderRow + 2;
+
+    const bodyRows = generateBodyRowsArray();
+    bodyRows.forEach(rData => {
+        const rowObj = ws.getRow(currentRow);
+        for (let c = 0; c < 8; c++) {
+            if (rData[c] !== '') {
+                const cell = rowObj.getCell(c + 1);
+                cell.value = rData[c];
+                if (String(rData[c]).includes('\n')) {
+                    cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
+                }
+            }
+        }
+        currentRow++;
+    });
+
+    currentRow += 1;
+    const totalCtns = getFinalTotalCartons();
+    const totalCell = ws.getCell(`A${currentRow}`);
+    totalCell.value = `${totalCtns} CTN(S)`;
+    totalCell.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'double' }
+    };
+
+    currentRow += 2;
+    ws.getCell(`A${currentRow}`).value = 'LC No. :';
+    currentRow++;
+    state.footerInfo.lcLines.forEach(lc => {
+        ws.getCell(`A${currentRow}`).value = lc;
+        currentRow++;
+    });
+
+    ws.getCell(`A${currentRow}`).value = 'Remarks:';
+    currentRow++;
+    state.footerInfo.remarksLines.forEach(rmk => {
+        ws.getCell(`A${currentRow}`).value = rmk;
+        currentRow++;
+    });
+
+    currentRow++;
+    ws.getCell(`E${currentRow}`).value = ' FOR AND ON BEHALF OF';
+    currentRow++;
+    const behalfCell = ws.getCell(`E${currentRow}`);
+    behalfCell.value = 'Bandai Namco Asia Co., Ltd.';
+    behalfCell.font = boldFont;
+
+    currentRow += 3;
+    ws.getCell(`E${currentRow}`).value = 'AUTHORIZED SIGNATURES';
+    ws.getCell(`E${currentRow}`).border = { top: { style: 'thin' } };
+    ws.getCell(`F${currentRow}`).border = { top: { style: 'thin' } };
+    ws.getCell(`G${currentRow}`).border = { top: { style: 'thin' } };
+
+    ws.eachRow({ includeEmpty: false }, row => {
+        row.eachCell({ includeEmpty: false }, cell => {
+            if (!cell.font) cell.font = defaultFont;
+        });
+    });
+
+    const fileName = `${state.headerInfo.invoiceNo || 'Export'} PL.xlsx`;
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+}
+
+// ============================================================================
+// UI NAVIGATION HELPERS
+// ============================================================================
+function switchTab(tabId) {
+    ['tab-menu', 'tab-finalize', 'tab-edited', 'tab-preview', 'tab-raw'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+        document.getElementById('btn-' + id).classList.remove('tab-active');
+    });
+    document.getElementById(tabId).classList.remove('hidden');
+    document.getElementById('btn-' + tabId).classList.add('tab-active');
+}
+
+function resetAll() {
+    if (!confirm('Clear all imported SAP & Factory data and reset the workspace? (Your saved Custom Factory Presets will be kept)')) return;
+    location.reload();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,2214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP ↔️ Supplier Packing List Integrator v4.1 (Full Editable Edition)</title>
+    <!-- Tailwind CSS for Modern UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS for reading Excel files (.xls, .xlsx, .xlsm, .csv) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- ExcelJS for exporting styled .xlsx with exact borders, column widths, and formatting -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    <!-- FileSaver for saving exported files -->
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f1f5f9; }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #1d4ed8; font-weight: 700; background-color: #eff6ff; }
+        .row-selected { background-color: #dbeafe !important; border-left: 4px solid #2563eb; }
+        .cell-input { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.25rem 0.4rem; font-size: 0.75rem; background-color: #ffffff; transition: all 0.15s; }
+        .cell-input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); background-color: #eff6ff; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col text-slate-800">
+
+    <!-- Top Header Bar -->
+    <header class="bg-slate-900 text-white shadow-lg px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center space-x-3">
+            <span class="text-2xl">📦</span>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">SAP ↔️ Supplier Packing List Integrator web v 1.0</h1>
+                <p class="text-xs text-slate-400">Interactive Workflow Engine v4.1 • Full Manual Editing Enabled</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span id="statusBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                Step 1: Waiting for SAP File
+            </span>
+            <button onclick="resetAll()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-xs font-medium rounded-lg transition">
+                🔄 Reset All
+            </button>
+            <button onclick="exportMergedExcel()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow flex items-center space-x-2 transition">
+                <span>💾 Output Final Packing List (.xlsx)</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 p-6 max-w-[1720px] w-full mx-auto space-y-6">
+
+        <!-- File Upload & Supplier Selection Cards -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Step 1: SAP File Upload -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-1 rounded">Step 1</span>
+                        <span id="sapFileStatus" class="text-xs text-slate-400">Not Uploaded</span>
+                    </div>
+                    <h2 class="text-base font-bold text-slate-800 mb-1">Import SAP Raw Excel File</h2>
+                    <p class="text-xs text-slate-500 mb-4">Extracts HeaderInfo, FooterInfo, and SAP Item Descriptions (K, L, N, P).</p>
+                </div>
+                <label class="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/40 hover:bg-blue-50 transition rounded-lg p-4 text-center cursor-pointer">
+                    <input type="file" id="sapFileInput" accept=".xls,.xlsx,.xlsm,.csv" class="hidden" onchange="handleSAPUpload(event)">
+                    <div class="text-sm font-semibold text-blue-700">📂 Click or Drag SAP File Here</div>
+                    <div id="sapFileName" class="text-xs text-slate-500 mt-1 truncate">Supports .xlsx, .xls, .xlsm, .csv</div>
+                </label>
+            </div>
+
+            <!-- Step 2: Select Supplier & Upload Factory PL -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded">Step 2</span>
+                        <span id="ftyFileStatus" class="text-xs text-slate-400">Not Uploaded</span>
+                    </div>
+                    <h2 class="text-base font-bold text-slate-800 mb-2">Select Factory & Import Packing List</h2>
+                    <div class="flex items-center space-x-2 mb-3">
+                        <label class="text-xs font-semibold text-slate-600 whitespace-nowrap">Supplier (J3):</label>
+                        <select id="supplierSelect" onchange="onSupplierChange()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <option value="Fuman">Fuman (ImportFactoryData_FuMan)</option>
+                            <option value="Double Chin">Double Chin (ImportFactoryData_DC)</option>
+                            <option value="Kam Fung">Kam Fung (ImportFactoryData_KF)</option>
+                            <option value="Idea Kids">Idea Kids (ImportFactoryData_IK)</option>
+                            <option value="RS">RS (ImportFactoryData_RS)</option>
+                        </select>
+                    </div>
+                </div>
+                <label class="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50 transition rounded-lg p-4 text-center cursor-pointer">
+                    <input type="file" id="ftyFileInput" accept=".xls,.xlsx,.xlsm,.csv" class="hidden" onchange="handleFTYUpload(event)">
+                    <div class="text-sm font-semibold text-indigo-700">🏭 Click or Drag Factory Packing List Here</div>
+                    <div id="ftyFileName" class="text-xs text-slate-500 mt-1 truncate">Auto-runs selected supplier parser</div>
+                </label>
+            </div>
+
+            <!-- Live Summary Metrics -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded">Summary</span>
+                        <span id="summaryInvoiceNo" class="text-sm font-extrabold text-slate-800">Invoice: --</span>
+                    </div>
+                    <h2 class="text-base font-bold text-slate-800 mb-3">Live Shipment Overview</h2>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <div class="text-xs text-slate-500">SAP Items</div>
+                            <div id="statSapCount" class="text-lg font-extrabold text-slate-800">0</div>
+                        </div>
+                        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <div class="text-xs text-slate-500">Edited Rows</div>
+                            <div id="statFtyCount" class="text-lg font-extrabold text-indigo-600">0</div>
+                        </div>
+                        <div class="bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                            <div class="text-xs text-emerald-700 font-medium">Final Total Cartons</div>
+                            <div id="statTotalCtns" class="text-lg font-extrabold text-emerald-700">0 CTN(S)</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
+                    <span>All manual edits in Tab 3 reflect in Live Preview & Output</span>
+                    <button onclick="recalculatePipeline()" title="Rebuild EditedItem from Raw/Finalize" class="text-blue-600 hover:underline font-semibold">⚡ Rebuild from Raw</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="flex border-b border-slate-200 bg-slate-50 overflow-x-auto">
+                <button onclick="switchTab('tab-menu')" id="btn-tab-menu" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap tab-active">
+                    1️⃣ Menu & Description Editor
+                </button>
+                <button onclick="switchTab('tab-finalize')" id="btn-tab-finalize" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    2️⃣ Finalize & Combine Pattern (<span id="badgeFinalizeCount">0</span>)
+                </button>
+                <button onclick="switchTab('tab-edited')" id="btn-tab-edited" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    3️⃣ EditedItem Table (<span id="badgeEditedCount">0</span>)
+                </button>
+                <button onclick="switchTab('tab-preview')" id="btn-tab-preview" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    4️⃣ Live Packing List Preview & Output
+                </button>
+                <button onclick="switchTab('tab-raw')" id="btn-tab-raw" class="px-5 py-3.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition whitespace-nowrap">
+                    🔍 Raw Data Inspector (ImportRaw)
+                </button>
+            </div>
+
+            <!-- TAB 1: MENU & DESCRIPTION EDITOR -->
+            <div id="tab-menu" class="p-6">
+                <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                    
+                    <!-- Left Column: Shipment Details & Unique Item Summary (4 cols) -->
+                    <div class="xl:col-span-4 space-y-5">
+                        <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">🚢 Shipment Details (Editable)</h3>
+                                <span class="text-xs text-slate-400">HeaderInfo & FooterInfo</span>
+                            </div>
+                            <div class="space-y-2.5 text-xs">
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Invoice No.:</label>
+                                    <input type="text" id="hdrInvoice" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 font-bold text-base text-blue-900 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2">
+                                    <label class="font-semibold text-slate-600 pt-1">Sold To Messrs:<br><span class="text-[10px] font-normal text-slate-400">(1 line per row)</span></label>
+                                    <textarea id="hdrSoldTo" rows="4" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs"></textarea>
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Shipped Per:</label>
+                                    <input type="text" id="hdrShippedPer" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Sailing On:</label>
+                                    <input type="text" id="hdrSailing" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">From / To:</label>
+                                    <div class="col-span-2 grid grid-cols-2 gap-1">
+                                        <input type="text" id="hdrFrom" placeholder="From" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                        <input type="text" id="hdrTo" placeholder="To" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Origin:</label>
+                                    <input type="text" id="hdrOrigin" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Payment:</label>
+                                    <input type="text" id="hdrPayment" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white">
+                                </div>
+                                <div class="grid grid-cols-3 items-center gap-2">
+                                    <label class="font-semibold text-slate-600">Delivery / Date:</label>
+                                    <div class="col-span-2 grid grid-cols-2 gap-1">
+                                        <input type="text" id="hdrDeliveryNo" placeholder="Delivery No" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                        <input type="text" id="hdrDate" placeholder="Date" oninput="syncHeaderFromUI()" class="border border-slate-300 rounded px-2 py-1 bg-white">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2 pt-2 border-t border-slate-200">
+                                    <label class="font-semibold text-slate-600 pt-1">LC No. Lines:</label>
+                                    <textarea id="ftrLC" rows="2" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs" placeholder="Optional LC No. lines"></textarea>
+                                </div>
+                                <div class="grid grid-cols-3 items-start gap-2">
+                                    <label class="font-semibold text-slate-600 pt-1">Remarks Lines:</label>
+                                    <textarea id="ftrRemarks" rows="3" oninput="syncHeaderFromUI()" class="col-span-2 border border-slate-300 rounded px-2 py-1 bg-white font-mono text-xs"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grouped Item Summary (Matches Menu B18 LET/UNIQUE formula) -->
+                        <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">📊 Unique Item Summary (Menu B18)</h3>
+                            <div class="overflow-y-auto max-h-56 border border-slate-200 rounded-lg bg-white">
+                                <table class="w-full text-xs text-left">
+                                    <thead class="bg-slate-100 text-slate-600 border-b border-slate-200">
+                                        <tr>
+                                            <th class="py-2 px-3">Item#</th>
+                                            <th class="py-2 px-3">Aggregated Breakdown</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="uniqueSummaryBody" class="divide-y divide-slate-100">
+                                        <tr><td colspan="2" class="py-4 text-center text-slate-400">No FTY items loaded</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle Column: FTY Item List with Checkboxes (5 cols) -->
+                    <div class="xl:col-span-5 flex flex-col">
+                        <div class="flex justify-between items-center mb-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">📋 Factory Item List (Menu F6:L)</h3>
+                                <p class="text-xs text-slate-500">Click any row to inspect & edit its description on the right panel.</p>
+                            </div>
+                            <div class="space-x-1">
+                                <button onclick="toggleAllMenuItems(true)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded">Check All</button>
+                                <button onclick="toggleAllMenuItems(false)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded">Uncheck All</button>
+                            </div>
+                        </div>
+                        <div class="border border-slate-200 rounded-xl overflow-hidden flex-1 bg-white shadow-inner max-h-[680px] overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-slate-800 text-white sticky top-0 z-10">
+                                    <tr>
+                                        <th class="py-2.5 px-2 text-center">Show (L)</th>
+                                        <th class="py-2.5 px-2 text-center"># (Q)</th>
+                                        <th class="py-2.5 px-2">Item#</th>
+                                        <th class="py-2.5 px-2 text-right">CTNqty</th>
+                                        <th class="py-2.5 px-2 text-right">pcs/ctn</th>
+                                        <th class="py-2.5 px-2 text-right">Ttlqty</th>
+                                        <th class="py-2.5 px-2">Description1 (K)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="menuItemListBody" class="divide-y divide-slate-200">
+                                    <tr><td colspan="7" class="py-12 text-center text-slate-400">Please upload SAP & Factory Packing List files above.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Interactive Description Editor (Menu N6:N18 & EditDescription) (3 cols) -->
+                    <div class="xl:col-span-3">
+                        <div class="bg-blue-50/70 rounded-xl p-5 border border-blue-200 sticky top-6">
+                            <div class="flex justify-between items-center mb-3 pb-2 border-b border-blue-200">
+                                <div>
+                                    <h3 class="text-sm font-bold text-blue-950 uppercase tracking-wider">✏️ Item Inspector & Editor</h3>
+                                    <p class="text-xs text-blue-700">Selected Index (index!A1): <span id="editorIndexBadge" class="font-extrabold">None</span></p>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3 text-xs">
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Special Description (Menu N6 → Col P):</label>
+                                    <input type="text" id="editDescSP" placeholder="e.g. KAAMEN RIDER AGITO" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Formatted Item No (Menu N7):</label>
+                                    <input type="text" id="editItemNoDisplay" readonly class="w-full border border-slate-200 rounded-lg px-3 py-1.5 bg-slate-100 text-slate-600 font-mono">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Main Description 1 (Menu N8 → Col K):</label>
+                                    <input type="text" id="editDesc1" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500">
+                                </div>
+
+                                <div>
+                                    <label class="block font-bold text-slate-700 mb-1">Spec / Shipping Mark (Menu N9 → Col L):</label>
+                                    <textarea id="editDesc2" rows="4" class="w-full border border-blue-300 rounded-lg px-3 py-1.5 bg-white font-mono text-xs text-slate-800 focus:ring-2 focus:ring-blue-500"></textarea>
+                                </div>
+
+                                <div class="grid grid-cols-1 gap-2 pt-1">
+                                    <div class="bg-white p-2.5 rounded-lg border border-blue-100 space-y-1 text-slate-600 font-mono text-[11px]">
+                                        <div><span class="font-bold text-slate-800">Packing (N12):</span> <span id="editDesc3">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Barcode (N13):</span> <span id="editDesc4">--</span></div>
+                                        <div><span class="font-bold text-slate-800">CTN Span (N14):</span> <span id="editDesc5">--</span></div>
+                                        <div class="pt-1 border-t border-slate-100"><span class="font-bold text-slate-800">Cntr/Seal (N16):</span> <span id="editCntrSeal">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Weight (N17):</span> <span id="editWeight">--</span></div>
+                                        <div><span class="font-bold text-slate-800">Dimension (N18):</span> <span id="editDim">--</span></div>
+                                    </div>
+                                </div>
+
+                                <div class="pt-2 flex flex-col gap-2">
+                                    <button onclick="saveDescriptionEdit(false)" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition">
+                                        ✅ Save to Current Row (#<span id="btnCurrIdx">--</span>)
+                                    </button>
+                                    <button onclick="saveDescriptionEdit(true)" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow transition">
+                                        🔗 Apply to All Rows with Same Item# (SAP + FTY)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- TAB 2: FINALIZE & COMBINE PATTERN -->
+            <div id="tab-finalize" class="p-6 hidden">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">🔗 Finalize Sheet — Clarify Item Combination Pattern</h3>
+                        <p class="text-xs text-slate-500">
+                            Matches <code>MoveAndCleanFilteredFTYDataToTable</code>: 1st appearance is separate; 2nd+ appearances with matching <code>pcs/ctn</code> auto-merge when <b>CombineOrNot (Col U)</b> is checked; differing <code>pcs/ctn</code> break apart into <code>1 CTN(S)</code> rows.
+                        </p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="recalculatePipeline()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-xs font-bold rounded-lg">🔄 Reset Default Combine Rules</button>
+                        <button onclick="switchTab('tab-edited')" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg">Next: Fine-Tune EditedItem Table ➔</button>
+                    </div>
+                </div>
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th class="py-2.5 px-3 text-center">Combine# (T)</th>
+                                <th class="py-2.5 px-3 text-center bg-amber-600">CombineOrNot (U)</th>
+                                <th class="py-2.5 px-3">Item# (B)</th>
+                                <th class="py-2.5 px-3 text-right">CTNqty (C)</th>
+                                <th class="py-2.5 px-3 text-right">pcs/ctn (D)</th>
+                                <th class="py-2.5 px-3 text-right">Ttlqty (E)</th>
+                                <th class="py-2.5 px-3 text-right">GW (F)</th>
+                                <th class="py-2.5 px-3 text-right">NW (G)</th>
+                                <th class="py-2.5 px-3">Dimensions (H×I×J)</th>
+                                <th class="py-2.5 px-3">Description1 (K)</th>
+                                <th class="py-2.5 px-3">CTN Span (O)</th>
+                                <th class="py-2.5 px-3">Container / Seal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="finalizeTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 3: EDITEDITEM TABLE (100% MANUALLY EDITABLE) -->
+            <div id="tab-edited" class="p-6 hidden">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">📑 EditedItem Sheet (Table <code>RawItem3</code> — Every Field Manually Editable)</h3>
+                        <p class="text-xs text-slate-500">
+                            Every single cell below is manually editable! Modifying <b>CTNqty (C)</b> or <b>pcs/ctn (D)</b> automatically updates <b>Ttlqty (E)</b>, <b>Desc3 (M)</b>, <b>Span (O)</b>, <b>Total Cartons</b>, <b>4️⃣ Live Packing List Preview</b>, and the <b>Final Output Excel</b>.
+                        </p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="addEditedRow()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow transition">
+                            ➕ Add Blank Row
+                        </button>
+                        <button onclick="buildEditedItemFromFinalize(); renderEditedTable(); renderPreview(); updateSummaryMetrics();" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition">
+                            🔄 Revert to Finalize Merge
+                        </button>
+                        <button onclick="switchTab('tab-preview')" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow transition">
+                            4️⃣ Go to Live Preview & Output ➔
+                        </button>
+                    </div>
+                </div>
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-inner">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white">
+                            <tr>
+                                <th class="py-2.5 px-2 text-center">#</th>
+                                <th class="py-2.5 px-2">Item# (B)</th>
+                                <th class="py-2.5 px-2 text-right">CTNqty (C)</th>
+                                <th class="py-2.5 px-2 text-right">pcs/ctn (D)</th>
+                                <th class="py-2.5 px-2 text-right">Ttlqty (E)</th>
+                                <th class="py-2.5 px-2 text-right">GW (F)</th>
+                                <th class="py-2.5 px-2 text-right">NW (G)</th>
+                                <th class="py-2.5 px-2 text-center">Size (H × I × J)</th>
+                                <th class="py-2.5 px-2">DescSP (P)</th>
+                                <th class="py-2.5 px-2">Desc1 (K)</th>
+                                <th class="py-2.5 px-2">Desc2 (L)</th>
+                                <th class="py-2.5 px-2">Desc3 (M)</th>
+                                <th class="py-2.5 px-2">Barcode (N)</th>
+                                <th class="py-2.5 px-2">Span (O)</th>
+                                <th class="py-2.5 px-2">Container (R) / Seal (S)</th>
+                                <th class="py-2.5 px-2 text-center">Del</th>
+                            </tr>
+                        </thead>
+                        <tbody id="editedTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 4: LIVE PACKING LIST PREVIEW -->
+            <div id="tab-preview" class="p-6 hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">🖨️ Final Merged Packing List Preview (Header + Body + Footer)</h3>
+                        <p class="text-xs text-slate-500">Live reflection of all edits in <b>3️⃣ EditedItem Table</b> and <b>HeaderInfo / FooterInfo</b>.</p>
+                    </div>
+                    <button onclick="exportMergedExcel()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow">
+                        💾 Download Formatted Excel (.xlsx)
+                    </button>
+                </div>
+                <div class="bg-white border border-slate-300 rounded-xl shadow-md p-8 max-w-5xl mx-auto font-mono text-xs overflow-x-auto">
+                    <div id="packingListPreviewContainer"></div>
+                </div>
+            </div>
+
+            <!-- TAB 5: IMPORTRAW INSPECTOR -->
+            <div id="tab-raw" class="p-6 hidden">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-800">🔍 ImportRaw Sheet Inspector (SAP + FTY Combined Raw Table)</h3>
+                    <p class="text-xs text-slate-500">Shows all parsed rows in <code>ImportRaw</code> with sequential index <code># (Col Q)</code>, plus Kam Fung extra columns <code>T</code> & <code>U</code>.</p>
+                </div>
+                <div class="border border-slate-200 rounded-xl overflow-x-auto bg-white max-h-[600px]">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-800 text-white sticky top-0">
+                            <tr>
+                                <th class="py-2 px-2">Q (#)</th>
+                                <th class="py-2 px-2">Source (A)</th>
+                                <th class="py-2 px-2">Item# (B)</th>
+                                <th class="py-2 px-2 text-right">CTN (C)</th>
+                                <th class="py-2 px-2 text-right">pcs/ctn (D)</th>
+                                <th class="py-2 px-2 text-right">Ttl (E)</th>
+                                <th class="py-2 px-2 text-right">GW (F)</th>
+                                <th class="py-2 px-2 text-right">NW (G)</th>
+                                <th class="py-2 px-2">Dimensions</th>
+                                <th class="py-2 px-2">DescSP (P)</th>
+                                <th class="py-2 px-2">Desc1 (K)</th>
+                                <th class="py-2 px-2">Desc2 (L)</th>
+                                <th class="py-2 px-2">Barcode (N)</th>
+                                <th class="py-2 px-2">Cntr / Seal</th>
+                                <th class="py-2 px-2">Col T / U</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rawInspectorBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+<script>
+// ============================================================================
+// GLOBAL STATE
+// ============================================================================
+let state = {
+    supplier: 'Fuman',
+    headerInfo: {
+        invoiceNo: '',
+        soldTo: [],
+        shippedPer: '',
+        sailingOn: '',
+        from: '',
+        to: '',
+        origin: '',
+        payment: '',
+        deliveryNo: '',
+        date: '',
+        page: '1'
+    },
+    footerInfo: {
+        lcLines: [],
+        remarksLines: []
+    },
+    importRaw: [],      // Array of row objects (Source: "SAP" or "FTY")
+    finalizeRows: [],   // Array of row objects in Finalize sheet
+    editedItems: [],    // Array of row objects in EditedItem sheet (100% manually editable)
+    selectedQIndex: null,
+    lastFtyWorkbook: null
+};
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+function getNumbersOnly(sourceText) {
+    if (sourceText === null || sourceText === undefined) return '';
+    return String(sourceText).replace(/[^0-9]/g, '');
+}
+
+function cleanStr(val) {
+    if (val === null || val === undefined) return '';
+    return String(val).trim();
+}
+
+function toNum(val) {
+    if (val === null || val === undefined || val === '') return 0;
+    const cleaned = String(val).replace(/,/g, '').trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+}
+
+function roundUp(num, decimals) {
+    const factor = Math.pow(10, decimals);
+    return Math.ceil(num * factor) / factor;
+}
+
+function escapeAttr(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function getCell(grid, r1Based, c1Based) {
+    const row = grid[r1Based - 1];
+    if (!row) return '';
+    const val = row[c1Based - 1];
+    return (val === null || val === undefined) ? '' : val;
+}
+
+function sheetToGrid(ws) {
+    return XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+}
+
+// Gets total cartons directly from EditedItem Table (or fallback to checked FTY if empty)
+function getFinalTotalCartons() {
+    if (state.editedItems && state.editedItems.length > 0) {
+        return state.editedItems.reduce((acc, item) => acc + toNum(item.ctnQty), 0);
+    }
+    return state.importRaw.filter(r => r.source === 'FTY' && r.checked).reduce((acc, r) => acc + toNum(r.ctnQty), 0);
+}
+
+// ============================================================================
+// STEP 1: SAP FILE PARSER (Port of Import_SAP.bas)
+// ============================================================================
+function handleSAPUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('sapFileName').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellStyles: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const grid = sheetToGrid(ws);
+
+        parseSAPWorksheet(grid, ws);
+        document.getElementById('sapFileStatus').textContent = '✅ Imported';
+        document.getElementById('sapFileStatus').className = 'text-xs font-bold text-emerald-600';
+        document.getElementById('statusBadge').textContent = 'Step 2: Upload Factory Packing List';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parseSAPWorksheet(grid, ws) {
+    state.importRaw = [];
+    state.headerInfo = {
+        invoiceNo: '', soldTo: [], shippedPer: '', sailingOn: '',
+        from: '', to: '', origin: '', payment: '', deliveryNo: '', date: '', page: '1'
+    };
+    state.footerInfo = { lcLines: [], remarksLines: [] };
+
+    const maxHdrScan = Math.min(35, grid.length);
+    for (let r = 1; r <= maxHdrScan; r++) {
+        const labelColA = cleanStr(getCell(grid, r, 1));
+        const labelColF = cleanStr(getCell(grid, r, 6));
+
+        if (/Invoice No/i.test(labelColA)) {
+            state.headerInfo.invoiceNo = cleanStr(getCell(grid, r, 2));
+        } else if (/Sold To/i.test(labelColA)) {
+            state.headerInfo.soldTo = [cleanStr(getCell(grid, r, 2))];
+            let addrOffset = 1;
+            while (addrOffset <= 10 && cleanStr(getCell(grid, r + addrOffset, 1)) === '' && cleanStr(getCell(grid, r + addrOffset, 2)) !== '') {
+                state.headerInfo.soldTo.push(cleanStr(getCell(grid, r + addrOffset, 2)));
+                addrOffset++;
+            }
+        } else if (/Shipped Per/i.test(labelColA)) {
+            state.headerInfo.shippedPer = cleanStr(getCell(grid, r, 2));
+        } else if (/Sailing On/i.test(labelColA)) {
+            state.headerInfo.sailingOn = cleanStr(getCell(grid, r, 2));
+        } else if (/From:/i.test(labelColA)) {
+            state.headerInfo.from = cleanStr(getCell(grid, r, 2));
+            state.headerInfo.to = cleanStr(getCell(grid, r, 3));
+        } else if (/Country of Org/i.test(labelColA) || /Country of Ori/i.test(labelColA)) {
+            state.headerInfo.origin = cleanStr(getCell(grid, r, 2));
+        } else if (/Payment/i.test(labelColA)) {
+            state.headerInfo.payment = cleanStr(getCell(grid, r, 2));
+        }
+
+        if (/Delivery No/i.test(labelColF)) {
+            let delivVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.deliveryNo = delivVal;
+        } else if (/Date:/i.test(labelColF)) {
+            let dateVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.date = dateVal;
+        } else if (/Page:/i.test(labelColF)) {
+            let pageVal = cleanStr(getCell(grid, r, 7)) || cleanStr(getCell(grid, r, 8));
+            state.headerInfo.page = pageVal || '1';
+        }
+    }
+
+    let startRow = 0;
+    for (let r = 1; r <= Math.min(100, grid.length); r++) {
+        if (/Description/i.test(cleanStr(getCell(grid, r, 2)))) {
+            startRow = r + 1;
+            break;
+        }
+    }
+
+    if (startRow === 0) {
+        alert("Cannot find 'Description of Goods' in Column B of SAP file.");
+        return;
+    }
+
+    let r = startRow;
+    const maxRow = grid.length;
+    while (r <= maxRow) {
+        const colA = cleanStr(getCell(grid, r, 1));
+        const colB = cleanStr(getCell(grid, r, 2));
+
+        if (colA !== '') {
+            if (/Total/i.test(colA) || /LC No/i.test(colA) || /Remarks/i.test(colA)) break;
+            if (/CTN\(S\)/i.test(colA) && colB === '') break;
+        }
+
+        if (colA === '' && colB === '') {
+            r++;
+        } else {
+            let blockStartRow = r;
+            let tempIdx = r;
+            while (tempIdx <= maxRow) {
+                const tA = cleanStr(getCell(grid, tempIdx, 1));
+                const tB = cleanStr(getCell(grid, tempIdx, 2));
+                if (tA === '' && tB === '') break;
+                if (tA !== '' && tB === '' && /CTN\(S\)/i.test(tA)) break;
+                tempIdx++;
+            }
+            let blockEndRow = tempIdx - 1;
+            processSAPItemBlock(grid, blockStartRow, blockEndRow);
+            r = tempIdx;
+        }
+    }
+
+    processSAPFooterInfo(grid, r);
+    renumberImportRaw();
+    populateHeaderUI();
+    recalculatePipeline();
+}
+
+function processSAPItemBlock(grid, startIdx, endIdx) {
+    let itemRowIdx = 0;
+    for (let idx = startIdx; idx <= endIdx; idx++) {
+        if (/Item No:/i.test(cleanStr(getCell(grid, idx, 2)))) {
+            itemRowIdx = idx;
+            break;
+        }
+    }
+    if (itemRowIdx === 0) return;
+
+    let strSpecialDesc = '';
+    if (itemRowIdx > startIdx) {
+        strSpecialDesc = cleanStr(getCell(grid, itemRowIdx - 1, 2));
+    }
+
+    const strItemNo = getNumbersOnly(getCell(grid, itemRowIdx, 2));
+    let metricRow = (itemRowIdx > startIdx && cleanStr(getCell(grid, startIdx, 4)) !== '') ? startIdx : itemRowIdx;
+    const strGrossWt = cleanStr(String(getCell(grid, metricRow, 4)).toUpperCase().replace(/KG/g, ''));
+    const strNetWt = cleanStr(String(getCell(grid, metricRow, 5)).toUpperCase().replace(/KG/g, ''));
+    const strSizeRaw = cleanStr(getCell(grid, metricRow, 6));
+
+    let strSize1 = '', strSize2 = '', strSize3 = '';
+    if (/X/i.test(strSizeRaw)) {
+        const parts = strSizeRaw.toUpperCase().split('X');
+        if (parts.length >= 1) strSize1 = cleanStr(parts[0]);
+        if (parts.length >= 2) strSize2 = cleanStr(parts[1]);
+        if (parts.length >= 3) strSize3 = cleanStr(parts[2]);
+    }
+
+    let strDesc1 = '';
+    if (itemRowIdx + 1 <= endIdx) {
+        strDesc1 = cleanStr(getCell(grid, itemRowIdx + 1, 2));
+    }
+
+    let pcsRowIdx = 0, ctnRowIdx = 0;
+    let strDesc2 = '', strDesc3 = '', strDesc4 = '', strDesc5 = '';
+    let strCtnQty = '', strPcsCtn = '';
+
+    for (let idx = itemRowIdx + 2; idx <= endIdx; idx++) {
+        const valColA = cleanStr(getCell(grid, idx, 1));
+        const valColB = cleanStr(getCell(grid, idx, 2));
+
+        if (/PCS PER/i.test(valColB)) {
+            pcsRowIdx = idx;
+            strDesc3 = valColB;
+            strPcsCtn = getNumbersOnly(valColB.toUpperCase().split('PCS')[0]);
+        } else if (/BARCODE/i.test(valColB)) {
+            strDesc4 = valColB;
+        }
+
+        if (/CTN/i.test(valColA)) {
+            ctnRowIdx = idx;
+            strCtnQty = getNumbersOnly(valColA);
+            strDesc5 = valColB;
+        }
+    }
+
+    if (ctnRowIdx === 0) {
+        ctnRowIdx = endIdx;
+        strDesc5 = cleanStr(getCell(grid, ctnRowIdx, 2));
+        strCtnQty = getNumbersOnly(cleanStr(getCell(grid, ctnRowIdx, 1)));
+    }
+
+    if (pcsRowIdx > itemRowIdx + 2) {
+        const d2Lines = [];
+        for (let idx = itemRowIdx + 2; idx <= pcsRowIdx - 1; idx++) {
+            const line = cleanStr(getCell(grid, idx, 2));
+            if (line) d2Lines.push(line);
+        }
+        strDesc2 = d2Lines.join('\n');
+    }
+
+    const ctnNum = toNum(strCtnQty);
+    const pcsNum = toNum(strPcsCtn);
+    const ttlNum = (ctnNum > 0 && pcsNum > 0) ? (ctnNum * pcsNum) : '';
+
+    state.importRaw.push({
+        source: 'SAP',
+        itemNo: strItemNo,
+        ctnQty: ctnNum || strCtnQty,
+        pcsCtn: pcsNum || strPcsCtn,
+        ttlQty: ttlNum,
+        gw: toNum(strGrossWt),
+        nw: toNum(strNetWt),
+        size1: toNum(strSize1),
+        size2: toNum(strSize2),
+        size3: toNum(strSize3),
+        desc1: strDesc1,
+        desc2: strDesc2,
+        desc3: strDesc3,
+        desc4: strDesc4,
+        desc5: strDesc5,
+        descSP: strSpecialDesc,
+        qIndex: 0,
+        containerNo: '',
+        sealNo: '',
+        colT: '',
+        colU: '',
+        checked: false
+    });
+}
+
+function processSAPFooterInfo(grid, startRow) {
+    let lcRow = 0, rmkRow = 0;
+    const maxScan = Math.min(grid.length, startRow + 60);
+    for (let r = startRow; r <= maxScan; r++) {
+        const valA = cleanStr(getCell(grid, r, 1));
+        if (/LC No/i.test(valA)) lcRow = r;
+        if (/Remarks/i.test(valA)) {
+            rmkRow = r;
+            break;
+        }
+    }
+
+    if (lcRow > 0) {
+        const rightVal = cleanStr(getCell(grid, lcRow, 2));
+        if (rightVal) state.footerInfo.lcLines.push(rightVal);
+        if (rmkRow > lcRow) {
+            for (let tmpR = lcRow + 1; tmpR < rmkRow; tmpR++) {
+                const v1 = cleanStr(getCell(grid, tmpR, 1));
+                const v2 = cleanStr(getCell(grid, tmpR, 2));
+                if (v1) state.footerInfo.lcLines.push(v1);
+                else if (v2) state.footerInfo.lcLines.push(v2);
+            }
+        }
+    }
+
+    if (rmkRow > 0) {
+        let blankCount = 0;
+        for (let tmpR = rmkRow + 1; tmpR <= Math.min(grid.length, rmkRow + 30); tmpR++) {
+            let rmkVal = cleanStr(getCell(grid, tmpR, 1)) || cleanStr(getCell(grid, tmpR, 2));
+            if (!rmkVal) {
+                blankCount++;
+                if (blankCount >= 4) break;
+            } else {
+                blankCount = 0;
+                if (/FOR AND ON BEHALF/i.test(rmkVal) || /AUTHORIZED/i.test(rmkVal)) break;
+                state.footerInfo.remarksLines.push(rmkVal);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// STEP 2: FACTORY PACKING LIST PARSERS (Port of Import_FTY_Raw.bas)
+// ============================================================================
+function onSupplierChange() {
+    state.supplier = document.getElementById('supplierSelect').value;
+    if (state.lastFtyWorkbook) {
+        parseFactoryWorkbook(state.lastFtyWorkbook);
+    } else {
+        recalculatePipeline();
+    }
+}
+
+function handleFTYUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    document.getElementById('ftyFileName').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        state.lastFtyWorkbook = wb;
+        parseFactoryWorkbook(wb);
+
+        document.getElementById('ftyFileStatus').textContent = `✅ Imported (${state.supplier})`;
+        document.getElementById('ftyFileStatus').className = 'text-xs font-bold text-indigo-600';
+        document.getElementById('statusBadge').textContent = 'Ready: Edit Any Field or Output Excel';
+        document.getElementById('statusBadge').className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parseFactoryWorkbook(wb) {
+    state.supplier = document.getElementById('supplierSelect').value;
+    state.importRaw = state.importRaw.filter(r => r.source === 'SAP');
+
+    if (state.supplier === 'Double Chin') {
+        parseFTY_DC(wb);
+    } else if (state.supplier === 'Fuman') {
+        parseFTY_FuMan(wb);
+    } else if (state.supplier === 'Idea Kids') {
+        parseFTY_IK(wb);
+    } else if (state.supplier === 'Kam Fung') {
+        parseFTY_KF(wb);
+    } else if (state.supplier === 'RS') {
+        parseFTY_RS(wb);
+    }
+
+    const sapMap = {};
+    state.importRaw.forEach(r => {
+        if (r.source === 'SAP' && r.itemNo && !sapMap[r.itemNo]) {
+            sapMap[r.itemNo] = r;
+        }
+    });
+
+    state.importRaw.forEach(r => {
+        if (r.source === 'FTY') {
+            const sap = sapMap[r.itemNo];
+            if (sap) {
+                if (!r.desc1 && sap.desc1) r.desc1 = sap.desc1;
+                if (!r.desc2 && sap.desc2) r.desc2 = sap.desc2;
+                if (!r.desc4 && sap.desc4) r.desc4 = sap.desc4;
+                if (!r.descSP && sap.descSP) r.descSP = sap.descSP;
+            }
+        }
+    });
+
+    renumberImportRaw();
+    const firstFty = state.importRaw.find(r => r.source === 'FTY');
+    if (firstFty) selectInspectorRow(firstFty.qIndex);
+    recalculatePipeline();
+}
+
+function parseFTY_DC(wb) {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const grid = sheetToGrid(ws);
+    let startRow = 0;
+    for (let r = 1; r <= Math.min(100, grid.length); r++) {
+        if (/MEASUREMENT/i.test(cleanStr(getCell(grid, r, 8)))) {
+            startRow = r + 1;
+            break;
+        }
+    }
+    if (startRow === 0) {
+        alert("DC Parser: Cannot find 'MEASUREMENT' in Column H.");
+        return;
+    }
+
+    let currentContainer = '', currentSeal = '';
+    for (let r = startRow; r <= grid.length; r++) {
+        const bText = cleanStr(getCell(grid, r, 2));
+        if (/CONTAINER NO/i.test(bText)) {
+            const parts = bText.split(':');
+            if (parts.length > 1) currentContainer = cleanStr(parts[1]);
+        } else if (/SEAL NO/i.test(bText)) {
+            const parts = bText.split(':');
+            if (parts.length > 1) currentSeal = cleanStr(parts[1]);
+        }
+
+        const colHVal = cleanStr(getCell(grid, r, 8));
+        if (colHVal !== '' && !isNaN(parseFloat(colHVal))) {
+            const rawItemText = cleanStr(getCell(grid, r + 1, 1));
+            let strItemNo = '';
+            if (!(/E-mail/i.test(rawItemText) || /Tel/i.test(rawItemText))) {
+                strItemNo = getNumbersOnly(rawItemText);
+            }
+            if (strItemNo !== '') {
+                const ctnQty = Math.round(toNum(getCell(grid, r, 5)));
+                const totalQty = toNum(getCell(grid, r, 4));
+                const pcsPerCtn = ctnQty > 0 ? (totalQty / ctnQty) : 0;
+
+                state.importRaw.push({
+                    source: 'FTY',
+                    itemNo: strItemNo,
+                    ctnQty: ctnQty,
+                    pcsCtn: pcsPerCtn,
+                    ttlQty: totalQty,
+                    gw: toNum(getCell(grid, r, 6)),
+                    nw: toNum(getCell(grid, r, 7)),
+                    size1: toNum(getCell(grid, r, 8)),
+                    size2: toNum(getCell(grid, r, 10)),
+                    size3: toNum(getCell(grid, r, 12)),
+                    desc1: '',
+                    desc2: '',
+                    desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                    desc4: '',
+                    desc5: `from 1 to ${ctnQty} CTN(S)`,
+                    descSP: '',
+                    qIndex: 0,
+                    containerNo: currentContainer,
+                    sealNo: currentSeal,
+                    colT: '',
+                    colU: '',
+                    checked: true
+                });
+            }
+        }
+    }
+}
+
+function parseFTY_FuMan(wb) {
+    wb.SheetNames.forEach(sheetName => {
+        const grid = sheetToGrid(wb.Sheets[sheetName]);
+        let headerRow = 0, startRow = 0, colDesc = 0;
+        let colCtn = 0, colPcs = 0, colTtl = 0, colGW = 0, colNW = 0;
+        let colSize1 = 0, colSize2 = 0, colSize3 = 0;
+
+        for (let r = 1; r <= Math.min(100, grid.length); r++) {
+            for (let c = 1; c <= 65; c++) {
+                if (/PRODUCT DESCRIPTION/i.test(cleanStr(getCell(grid, r, c)))) {
+                    headerRow = r;
+                    startRow = r + 1;
+                    colDesc = c;
+                    break;
+                }
+            }
+            if (headerRow > 0) break;
+        }
+
+        if (headerRow > 0) {
+            for (let hdrCol = 1; hdrCol <= 65; hdrCol++) {
+                const hdrText = cleanStr(getCell(grid, headerRow, hdrCol)).toUpperCase();
+                if (hdrText.includes('NO. OF PACKAGES')) colCtn = hdrCol;
+                else if (hdrText.includes('CONTENTS')) colPcs = hdrCol;
+                else if (hdrText.includes('TOTAL QUANTITIES')) colTtl = hdrCol;
+                else if (hdrText.includes('G.W.')) colGW = hdrCol;
+                else if (hdrText.includes('N.W.')) colNW = hdrCol;
+
+                const subHdrText = cleanStr(getCell(grid, headerRow + 1, hdrCol)).toUpperCase();
+                if (subHdrText.includes('(CM)')) {
+                    if (colSize1 === 0) colSize1 = hdrCol;
+                    else if (colSize2 === 0) colSize2 = hdrCol;
+                    else if (colSize3 === 0) colSize3 = hdrCol;
+                }
+            }
+
+            if (colCtn === 0) colCtn = 7;
+            if (colPcs === 0) colPcs = 17;
+            if (colTtl === 0) colTtl = 22;
+            if (colGW === 0) colGW = colDesc + 4;
+            if (colNW === 0) colNW = colDesc + 10;
+            if (colSize1 === 0) colSize1 = colDesc + 12;
+            if (colSize2 === 0) colSize2 = colDesc + 18;
+            if (colSize3 === 0) colSize3 = colDesc + 24;
+
+            let foundFirstItem = false, blankCount = 0;
+            for (let r = startRow; r <= grid.length; r++) {
+                const zVal = cleanStr(getCell(grid, r, colDesc));
+                if (zVal === '') {
+                    if (foundFirstItem) {
+                        blankCount++;
+                        if (blankCount >= 4) break;
+                    }
+                } else {
+                    let isMatch = false, strItemNo = '';
+                    if (!(/E-mail/i.test(zVal) || /Tel/i.test(zVal))) {
+                        if (/^J\d{7}/i.test(zVal)) {
+                            strItemNo = zVal.substring(1, 8);
+                            isMatch = true;
+                        } else if (/^\d{7}/.test(zVal)) {
+                            strItemNo = zVal.substring(0, 7);
+                            isMatch = true;
+                        }
+                    }
+
+                    if (isMatch) {
+                        foundFirstItem = true;
+                        blankCount = 0;
+                        let ctnQty = Math.round(toNum(getCell(grid, r, colCtn)));
+                        if (ctnQty === 0) ctnQty = Math.round(toNum(getCell(grid, r, 4)));
+                        const pcsPerCtn = Math.round(toNum(getCell(grid, r, colPcs)));
+                        const ttlQty = Math.round(toNum(getCell(grid, r, colTtl)));
+                        if (ctnQty === 0 && pcsPerCtn > 0) ctnQty = Math.floor(ttlQty / pcsPerCtn);
+
+                        const strDesc1 = cleanStr(getCell(grid, r + 1, colDesc));
+                        state.importRaw.push({
+                            source: 'FTY',
+                            itemNo: strItemNo,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: ttlQty,
+                            gw: toNum(getCell(grid, r, colGW)),
+                            nw: toNum(getCell(grid, r, colNW)),
+                            size1: toNum(getCell(grid, r, colSize1)),
+                            size2: toNum(getCell(grid, r, colSize2)),
+                            size3: toNum(getCell(grid, r, colSize3)),
+                            desc1: strDesc1,
+                            desc2: '',
+                            desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                            desc4: '',
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            descSP: '',
+                            qIndex: 0,
+                            containerNo: '',
+                            sealNo: '',
+                            colT: '',
+                            colU: '',
+                            checked: true
+                        });
+                        r++;
+                    } else if (foundFirstItem) {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+function parseFTY_IK(wb) {
+    for (const sheetName of wb.SheetNames) {
+        if (sheetName.toUpperCase().includes('PACKING LIST')) {
+            const grid = sheetToGrid(wb.Sheets[sheetName]);
+            let startRow = 0;
+            for (let r = 1; r <= Math.min(100, grid.length); r++) {
+                if (cleanStr(getCell(grid, r, 3)).toUpperCase().includes('ITEM NO.')) {
+                    startRow = r + 1;
+                    break;
+                }
+            }
+            if (startRow > 0) {
+                let foundFirstItem = false, blankCount = 0;
+                for (let r = startRow; r <= grid.length; r++) {
+                    const cVal = cleanStr(getCell(grid, r, 3));
+                    let isMatchIK = false, strItemNo = '';
+                    if (!(/E-mail/i.test(cVal) || /Tel/i.test(cVal))) {
+                        if (/^J\d{7}/i.test(cVal)) {
+                            strItemNo = cVal.substring(1, 8);
+                            isMatchIK = true;
+                        } else if (/^\d{7}/.test(cVal)) {
+                            strItemNo = cVal.substring(0, 7);
+                            isMatchIK = true;
+                        }
+                    }
+
+                    if (isMatchIK) {
+                        foundFirstItem = true;
+                        blankCount = 0;
+                        const ctnQty = Math.round(toNum(getCell(grid, r, 2)));
+                        const strDesc1 = cleanStr(getCell(grid, r, 4));
+                        const pcsPerCtn = Math.round(toNum(getCell(grid, r, 6)));
+                        const sizeRaw = cleanStr(getCell(grid, r, 7)).toUpperCase().replace(/\*/g, 'X');
+                        const ttlQty = Math.round(toNum(getCell(grid, r, 8)));
+                        const gwVal = toNum(getCell(grid, r, 9));
+                        const nwVal = toNum(getCell(grid, r, 10));
+
+                        const sizeArr = sizeRaw.split('X');
+                        const convInch = (s) => {
+                            const v = parseFloat(cleanStr(s));
+                            return (!isNaN(v) && v > 0) ? roundUp(v * 2.54, 2) : '';
+                        };
+
+                        state.importRaw.push({
+                            source: 'FTY',
+                            itemNo: strItemNo,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: ttlQty,
+                            gw: gwVal,
+                            nw: nwVal,
+                            size1: sizeArr.length >= 1 ? convInch(sizeArr[0]) : '',
+                            size2: sizeArr.length >= 2 ? convInch(sizeArr[1]) : '',
+                            size3: sizeArr.length >= 3 ? convInch(sizeArr[2]) : '',
+                            desc1: strDesc1,
+                            desc2: '',
+                            desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                            desc4: '',
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            descSP: '',
+                            qIndex: 0,
+                            containerNo: '',
+                            sealNo: '',
+                            colT: '',
+                            colU: '',
+                            checked: true
+                        });
+                    } else if (foundFirstItem) {
+                        blankCount++;
+                        if (blankCount >= 5) break;
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+
+function parseFTY_KF(wb) {
+    const grid = sheetToGrid(wb.Sheets[wb.SheetNames[0]]);
+    let currentContainer = '', currentSeal = '';
+
+    for (let r = 1; r <= grid.length; r++) {
+        const cellText = cleanStr(getCell(grid, r, 1));
+        if (/Container No\./i.test(cellText)) {
+            currentContainer = cleanStr(getCell(grid, r, 2));
+            currentSeal = cleanStr(getCell(grid, r, 5));
+            continue;
+        }
+
+        const itemRaw = cellText;
+        if (/E-mail/i.test(itemRaw) || /Tel/i.test(itemRaw)) continue;
+
+        if ((/J/i.test(itemRaw) && itemRaw.length >= 5) || /\d{7}/.test(itemRaw)) {
+            let itemNo = itemRaw.replace(/[()]/g, '');
+            let firstLetterT = '', fiveDigitU = '';
+
+            if (itemRaw.includes('\n') || itemRaw.includes('\r') || itemRaw.length > 7) {
+                const lineParts = itemRaw.split(/[\r\n|]+/);
+                lineParts.forEach(part => {
+                    const cleaned = part.replace(/[()]/g, '').trim();
+                    if (cleaned.length >= 5) {
+                        if (/^\d{7}$/.test(cleaned)) {
+                            itemNo = cleaned;
+                        } else if (/^J\d+$/i.test(cleaned)) {
+                            const digits = cleaned.substring(1);
+                            if (digits.length === 5) {
+                                fiveDigitU = digits;
+                            } else if (digits.length >= 7) {
+                                firstLetterT = 'J';
+                                itemNo = digits;
+                            } else {
+                                firstLetterT = 'J';
+                                fiveDigitU = digits;
+                                itemNo = digits;
+                            }
+                        } else if (cleaned.length >= 7 && /^\d{6}/.test(cleaned.substring(1, 7))) {
+                            firstLetterT = cleaned[0];
+                            itemNo = cleaned.substring(1);
+                        }
+                    }
+                });
+            } else {
+                if (/^\d{7}$/.test(itemNo)) {
+                    firstLetterT = '';
+                    fiveDigitU = '';
+                } else if (/^J\d+$/i.test(itemNo)) {
+                    firstLetterT = 'J';
+                    itemNo = itemNo.substring(1);
+                    if (itemNo.length === 5) fiveDigitU = itemNo;
+                }
+            }
+
+            const descText = cleanStr(getCell(grid, r, 3));
+            const totalQty = Math.round(toNum(getCell(grid, r, 4)));
+            const pcsPerCtn = Math.round(toNum(getCell(grid, r, 5)));
+            const ctnQty = Math.round(toNum(getCell(grid, r, 6)));
+
+            state.importRaw.push({
+                source: 'FTY',
+                itemNo: itemNo,
+                ctnQty: ctnQty,
+                pcsCtn: pcsPerCtn,
+                ttlQty: totalQty,
+                gw: toNum(getCell(grid, r, 7)),
+                nw: toNum(getCell(grid, r, 9)),
+                size1: toNum(getCell(grid, r, 11)),
+                size2: toNum(getCell(grid, r, 13)),
+                size3: toNum(getCell(grid, r, 15)),
+                desc1: descText,
+                desc2: '',
+                desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                desc4: '',
+                desc5: `from 1 to ${ctnQty} CTN(S)`,
+                descSP: '',
+                qIndex: 0,
+                containerNo: currentContainer,
+                sealNo: currentSeal,
+                colT: firstLetterT,
+                colU: fiveDigitU,
+                checked: true
+            });
+        }
+    }
+}
+
+function parseFTY_RS(wb) {
+    const grid = sheetToGrid(wb.Sheets[wb.SheetNames[0]]);
+    let currentContainer = '', currentSeal = '';
+    let blankItemCount = 0;
+    let prevItemNo = '', prevGwVal = 0, prevNwVal = 0, prevSize1 = 0, prevSize2 = 0, prevSize3 = 0;
+
+    for (let r = 1; r <= grid.length; r++) {
+        const lineText = cleanStr(getCell(grid, r, 1));
+        if (/Container No\./i.test(lineText)) {
+            const cMatch = lineText.match(/Container No\.:\s*([^\s\r\n]+)/i);
+            if (cMatch) currentContainer = cMatch[1];
+            const sMatch = lineText.match(/Seal No\.:\s*([^\s\r\n]+)/i);
+            if (sMatch) currentSeal = sMatch[1];
+        }
+
+        let colFVal = cleanStr(getCell(grid, r, 6));
+        if (/E-mail/i.test(colFVal) || /Tel/i.test(colFVal)) colFVal = '';
+        if (/^(TOTAL|SUMMARY|GRAND TOTAL)$/i.test(colFVal)) break;
+
+        if (/^J\d{7}/i.test(colFVal) || /^\d{7}/.test(colFVal)) {
+            blankItemCount = 0;
+            const itemNo = /^J/i.test(colFVal) ? colFVal.substring(1, 8) : colFVal.substring(0, 7);
+            let ctnQty = 0, totalQty = 0, gwVal = 0, nwVal = 0, descText = '', size1 = 0, size2 = 0, size3 = 0;
+
+            if (toNum(getCell(grid, r, 5)) > 0 || /\sBOX/i.test(colFVal) || /\sSHEET/i.test(colFVal)) {
+                ctnQty = Math.round(toNum(getCell(grid, r, 3)));
+                totalQty = toNum(getCell(grid, r, 5));
+                gwVal = toNum(getCell(grid, r - 1, 8));
+                nwVal = toNum(getCell(grid, r - 1, 9));
+                descText = colFVal;
+                if (itemNo === prevItemNo) {
+                    if (!gwVal) gwVal = prevGwVal;
+                    if (!nwVal) nwVal = prevNwVal;
+                }
+            } else {
+                ctnQty = Math.round(toNum(getCell(grid, r - 1, 3)));
+                totalQty = toNum(getCell(grid, r - 1, 5));
+                gwVal = toNum(getCell(grid, r - 1, 8));
+                nwVal = toNum(getCell(grid, r - 1, 9));
+                descText = cleanStr(getCell(grid, r + 1, 6));
+                const nextLine = cleanStr(getCell(grid, r + 2, 6));
+                if (nextLine !== '' && !(/^J\d{7}/i.test(nextLine))) {
+                    descText += ' ' + nextLine;
+                }
+
+                const sizeRaw = cleanStr(getCell(grid, r - 1, 6));
+                const lastSpace = sizeRaw.lastIndexOf(' ');
+                let sizeStr = (lastSpace >= 0 ? sizeRaw.substring(lastSpace + 1) : sizeRaw).toLowerCase().replace(/cm/g, '').replace(/\*/g, 'x');
+                const sizeArr = sizeStr.split('x');
+                if (sizeArr.length >= 1) size1 = toNum(sizeArr[0]);
+                if (sizeArr.length >= 2) size2 = toNum(sizeArr[1]);
+                if (sizeArr.length >= 3) size3 = toNum(sizeArr[2]);
+
+                if (itemNo === prevItemNo) {
+                    if (!gwVal) gwVal = prevGwVal;
+                    if (!nwVal) nwVal = prevNwVal;
+                    if (!size1) size1 = prevSize1;
+                    if (!size2) size2 = prevSize2;
+                    if (!size3) size3 = prevSize3;
+                }
+            }
+
+            prevItemNo = itemNo;
+            if (gwVal) prevGwVal = gwVal;
+            if (nwVal) prevNwVal = nwVal;
+            if (size1) prevSize1 = size1;
+            if (size2) prevSize2 = size2;
+            if (size3) prevSize3 = size3;
+
+            const pcsPerCtn = ctnQty > 0 ? (totalQty / ctnQty) : 0;
+            state.importRaw.push({
+                source: 'FTY',
+                itemNo: itemNo,
+                ctnQty: ctnQty,
+                pcsCtn: pcsPerCtn,
+                ttlQty: totalQty,
+                gw: gwVal,
+                nw: nwVal,
+                size1: size1,
+                size2: size2,
+                size3: size3,
+                desc1: descText,
+                desc2: '',
+                desc3: `${pcsPerCtn}PCS PER MASTER CTN(S)`,
+                desc4: '',
+                desc5: `from 1 to ${ctnQty} CTN(S)`,
+                descSP: '',
+                qIndex: 0,
+                containerNo: currentContainer,
+                sealNo: currentSeal,
+                colT: '',
+                colU: '',
+                checked: true
+            });
+        } else if (colFVal === '') {
+            blankItemCount++;
+            if (blankItemCount >= 30) break;
+        } else {
+            blankItemCount = 0;
+        }
+    }
+}
+
+function renumberImportRaw() {
+    state.importRaw.forEach((row, idx) => {
+        row.qIndex = idx + 1;
+    });
+}
+
+// ============================================================================
+// STEP 3: PIPELINE ENGINE
+// ============================================================================
+function recalculatePipeline() {
+    buildFinalizeFromRaw();
+    buildEditedItemFromFinalize();
+    renderAllViews();
+}
+
+function buildFinalizeFromRaw() {
+    state.finalizeRows = [];
+    const dictFirstPcs = {};
+    const dictSubseqMerged = {};
+    const dictSubseqMergedNum = {};
+    let combineCounter = 0;
+
+    state.importRaw.forEach(raw => {
+        if (raw.source === 'FTY' && raw.checked && raw.itemNo) {
+            const strItemNo = raw.itemNo;
+            const ctnQty = Math.round(toNum(raw.ctnQty));
+            const pcsPerCtn = toNum(raw.pcsCtn);
+            const totalQty = toNum(raw.ttlQty);
+
+            if (dictFirstPcs[strItemNo] === undefined) {
+                dictFirstPcs[strItemNo] = pcsPerCtn;
+                combineCounter++;
+                state.finalizeRows.push({
+                    ...raw,
+                    ctnQty: ctnQty,
+                    pcsCtn: pcsPerCtn,
+                    ttlQty: totalQty,
+                    desc5: `from 1 to ${ctnQty} CTN(S)`,
+                    combineNo: combineCounter,
+                    combineOrNot: false
+                });
+            } else {
+                if (Math.round(pcsPerCtn * 100) === Math.round(dictFirstPcs[strItemNo] * 100)) {
+                    if (dictSubseqMerged[strItemNo] === undefined) {
+                        combineCounter++;
+                        dictSubseqMergedNum[strItemNo] = combineCounter;
+                        const finIdx = state.finalizeRows.length;
+                        dictSubseqMerged[strItemNo] = finIdx;
+
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: totalQty,
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            combineNo: combineCounter,
+                            combineOrNot: false
+                        });
+                    } else {
+                        const firstSubseqIdx = dictSubseqMerged[strItemNo];
+                        state.finalizeRows[firstSubseqIdx].combineOrNot = true;
+
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: ctnQty,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: totalQty,
+                            desc5: `from 1 to ${ctnQty} CTN(S)`,
+                            combineNo: dictSubseqMergedNum[strItemNo],
+                            combineOrNot: true
+                        });
+                    }
+                } else {
+                    const loopCtn = ctnQty > 0 ? ctnQty : 1;
+                    for (let i = 1; i <= loopCtn; i++) {
+                        combineCounter++;
+                        state.finalizeRows.push({
+                            ...raw,
+                            ctnQty: 1,
+                            pcsCtn: pcsPerCtn,
+                            ttlQty: pcsPerCtn,
+                            desc5: 'from 1 to 1 CTN(S)',
+                            combineNo: combineCounter,
+                            combineOrNot: false
+                        });
+                    }
+                }
+            }
+        }
+    });
+}
+
+function buildEditedItemFromFinalize() {
+    state.editedItems = [];
+    const dictSAP = {};
+
+    state.importRaw.forEach(raw => {
+        if (raw.source === 'SAP' && raw.itemNo && !dictSAP[raw.itemNo]) {
+            dictSAP[raw.itemNo] = {
+                valK: (raw.desc1 && raw.desc1 !== '0') ? raw.desc1 : '',
+                valL: (raw.desc2 && raw.desc2 !== '0') ? raw.desc2 : '',
+                valN: (raw.desc4 && raw.desc4 !== '0') ? raw.desc4 : '',
+                valP: (raw.descSP && raw.descSP !== '0') ? raw.descSP : ''
+            };
+        }
+    });
+
+    const dictCombine = {};
+
+    state.finalizeRows.forEach(fin => {
+        const itemNo = fin.itemNo;
+        const pcsCtn = String(fin.pcsCtn);
+        const isCombined = Boolean(fin.combineOrNot);
+        const dictKey = `${itemNo}|${pcsCtn}`;
+
+        const sap = dictSAP[itemNo] || { valK: '', valL: '', valN: '', valP: '' };
+        const resolvedK = fin.desc1 || sap.valK;
+        const resolvedL = fin.desc2 || sap.valL;
+        const resolvedN = fin.desc4 || sap.valN;
+        const resolvedP = fin.descSP || sap.valP;
+
+        if (isCombined) {
+            if (dictCombine[dictKey] === undefined) {
+                const newIdx = state.editedItems.length;
+                dictCombine[dictKey] = newIdx;
+                state.editedItems.push({
+                    ...fin,
+                    desc1: resolvedK,
+                    desc2: resolvedL,
+                    desc4: resolvedN,
+                    descSP: resolvedP,
+                    desc5: `from 1 to ${fin.ctnQty} CTN(S)`
+                });
+            } else {
+                const trgtIdx = dictCombine[dictKey];
+                const target = state.editedItems[trgtIdx];
+                target.ctnQty = toNum(target.ctnQty) + toNum(fin.ctnQty);
+                target.ttlQty = toNum(target.ttlQty) + toNum(fin.ttlQty);
+                target.desc5 = `from 1 to ${target.ctnQty} CTN(S)`;
+            }
+        } else {
+            state.editedItems.push({
+                ...fin,
+                desc1: resolvedK,
+                desc2: resolvedL,
+                desc4: resolvedN,
+                descSP: resolvedP,
+                desc5: `from 1 to ${fin.ctnQty} CTN(S)`
+            });
+        }
+    });
+}
+
+// ============================================================================
+// STEP 4: UI RENDERING & FULL MANUAL EDITING IN EDITEDITEM TABLE
+// ============================================================================
+function populateHeaderUI() {
+    document.getElementById('hdrInvoice').value = state.headerInfo.invoiceNo;
+    document.getElementById('hdrSoldTo').value = state.headerInfo.soldTo.join('\n');
+    document.getElementById('hdrShippedPer').value = state.headerInfo.shippedPer;
+    document.getElementById('hdrSailing').value = state.headerInfo.sailingOn;
+    document.getElementById('hdrFrom').value = state.headerInfo.from;
+    document.getElementById('hdrTo').value = state.headerInfo.to;
+    document.getElementById('hdrOrigin').value = state.headerInfo.origin;
+    document.getElementById('hdrPayment').value = state.headerInfo.payment;
+    document.getElementById('hdrDeliveryNo').value = state.headerInfo.deliveryNo;
+    document.getElementById('hdrDate').value = state.headerInfo.date;
+    document.getElementById('ftrLC').value = state.footerInfo.lcLines.join('\n');
+    document.getElementById('ftrRemarks').value = state.footerInfo.remarksLines.join('\n');
+}
+
+function syncHeaderFromUI() {
+    state.headerInfo.invoiceNo = document.getElementById('hdrInvoice').value.trim();
+    state.headerInfo.soldTo = document.getElementById('hdrSoldTo').value.split('\n').map(s => s.trim()).filter(Boolean);
+    state.headerInfo.shippedPer = document.getElementById('hdrShippedPer').value.trim();
+    state.headerInfo.sailingOn = document.getElementById('hdrSailing').value.trim();
+    state.headerInfo.from = document.getElementById('hdrFrom').value.trim();
+    state.headerInfo.to = document.getElementById('hdrTo').value.trim();
+    state.headerInfo.origin = document.getElementById('hdrOrigin').value.trim();
+    state.headerInfo.payment = document.getElementById('hdrPayment').value.trim();
+    state.headerInfo.deliveryNo = document.getElementById('hdrDeliveryNo').value.trim();
+    state.headerInfo.date = document.getElementById('hdrDate').value.trim();
+    state.footerInfo.lcLines = document.getElementById('ftrLC').value.split('\n').map(s => s.trim()).filter(Boolean);
+    state.footerInfo.remarksLines = document.getElementById('ftrRemarks').value.split('\n').map(s => s.trim()).filter(Boolean);
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function updateSummaryMetrics() {
+    const sapRows = state.importRaw.filter(r => r.source === 'SAP');
+    const totalCtns = getFinalTotalCartons();
+
+    document.getElementById('statSapCount').textContent = sapRows.length;
+    document.getElementById('statFtyCount').textContent = state.editedItems.length;
+    document.getElementById('statTotalCtns').textContent = `${totalCtns} CTN(S)`;
+    document.getElementById('summaryInvoiceNo').textContent = `Invoice: ${state.headerInfo.invoiceNo || '--'}`;
+    document.getElementById('badgeFinalizeCount').textContent = state.finalizeRows.length;
+    document.getElementById('badgeEditedCount').textContent = state.editedItems.length;
+}
+
+function renderAllViews() {
+    const ftyRows = state.importRaw.filter(r => r.source === 'FTY');
+    const checkedFty = ftyRows.filter(r => r.checked);
+
+    updateSummaryMetrics();
+    renderMenuItemList(ftyRows);
+    renderUniqueItemSummary(checkedFty);
+    renderFinalizeTable();
+    renderEditedTable();
+    renderRawInspector();
+    renderPreview();
+}
+
+function renderMenuItemList(ftyRows) {
+    const tbody = document.getElementById('menuItemListBody');
+    if (ftyRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-400">No Factory items imported yet. Upload SAP & Factory files above.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = ftyRows.map(r => {
+        const isSelected = r.qIndex === state.selectedQIndex;
+        return `
+        <tr onclick="selectInspectorRow(${r.qIndex})" class="cursor-pointer hover:bg-blue-50/70 transition ${isSelected ? 'row-selected' : ''}">
+            <td class="py-2 px-2 text-center" onclick="event.stopPropagation()">
+                <input type="checkbox" ${r.checked ? 'checked' : ''} onchange="toggleMenuItem(${r.qIndex}, this.checked)" class="w-4 h-4 text-blue-600 rounded">
+            </td>
+            <td class="py-2 px-2 text-center font-mono text-slate-500">${r.qIndex}</td>
+            <td class="py-2 px-2 font-bold text-slate-800">${escapeAttr(r.itemNo)}</td>
+            <td class="py-2 px-2 text-right font-mono">${r.ctnQty}</td>
+            <td class="py-2 px-2 text-right font-mono">${r.pcsCtn}</td>
+            <td class="py-2 px-2 text-right font-mono">${toNum(r.ttlQty).toLocaleString()}</td>
+            <td class="py-2 px-2 truncate max-w-[200px]" title="${escapeAttr(r.desc1 || '-')}">${escapeAttr(r.desc1 || '-')}</td>
+        </tr>`;
+    }).join('');
+}
+
+function renderUniqueItemSummary(checkedFty) {
+    const tbody = document.getElementById('uniqueSummaryBody');
+    if (checkedFty.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="2" class="py-4 text-center text-slate-400">No active FTY rows</td></tr>`;
+        return;
+    }
+    const groups = {};
+    checkedFty.forEach(r => {
+        const key = `${r.itemNo}|${r.pcsCtn}`;
+        if (!groups[key]) groups[key] = { itemNo: r.itemNo, pcsCtn: r.pcsCtn, sumCtn: 0, sumTtl: 0 };
+        groups[key].sumCtn += toNum(r.ctnQty);
+        groups[key].sumTtl += toNum(r.ttlQty);
+    });
+
+    tbody.innerHTML = Object.values(groups).map(g => `
+        <tr>
+            <td class="py-1.5 px-3 font-bold text-slate-800">${escapeAttr(g.itemNo)}</td>
+            <td class="py-1.5 px-3 font-mono text-slate-600">CTN: ${g.sumCtn} / pcs.ctn: ${g.pcsCtn} / Total: ${g.sumTtl.toLocaleString()}pcs</td>
+        </tr>
+    `).join('');
+}
+
+function selectInspectorRow(qIndex) {
+    state.selectedQIndex = qIndex;
+    const row = state.importRaw.find(r => r.qIndex === qIndex);
+    if (!row) return;
+
+    const sapRow = state.importRaw.find(r => r.source === 'SAP' && r.itemNo === row.itemNo);
+
+    document.getElementById('editorIndexBadge').textContent = `#${qIndex} (Item ${row.itemNo})`;
+    document.getElementById('btnCurrIdx').textContent = qIndex;
+    document.getElementById('editDescSP').value = row.descSP || (sapRow ? sapRow.descSP : '');
+    document.getElementById('editItemNoDisplay').value = formatItemNoString(row);
+    document.getElementById('editDesc1').value = row.desc1 || (sapRow ? sapRow.desc1 : '');
+    document.getElementById('editDesc2').value = row.desc2 || (sapRow ? sapRow.desc2 : '');
+    document.getElementById('editDesc3').textContent = row.desc3 || '--';
+    document.getElementById('editDesc4').textContent = row.desc4 || (sapRow ? sapRow.desc4 : '--');
+    document.getElementById('editDesc5').textContent = row.desc5 || '--';
+    document.getElementById('editCntrSeal').textContent = `${row.containerNo || 'N/A'} / ${row.sealNo || 'N/A'}`;
+    document.getElementById('editWeight').textContent = `G.W: ${toNum(row.gw).toFixed(2)}KG   N.W: ${toNum(row.nw).toFixed(2)}KG`;
+    document.getElementById('editDim').textContent = `${row.size1} x ${row.size2} x ${row.size3} cm`;
+
+    renderMenuItemList(state.importRaw.filter(r => r.source === 'FTY'));
+}
+
+function saveDescriptionEdit(applyToAllMatchingItems) {
+    if (!state.selectedQIndex) {
+        alert("Please click an item row in the Factory Item List first.");
+        return;
+    }
+    const targetRow = state.importRaw.find(r => r.qIndex === state.selectedQIndex);
+    if (!targetRow) return;
+
+    const newP = document.getElementById('editDescSP').value.trim();
+    const newK = document.getElementById('editDesc1').value.trim();
+    const newL = document.getElementById('editDesc2').value.trim();
+
+    if (applyToAllMatchingItems) {
+        state.importRaw.forEach(r => {
+            if (r.itemNo === targetRow.itemNo) {
+                r.descSP = newP;
+                r.desc1 = newK;
+                r.desc2 = newL;
+            }
+        });
+    } else {
+        targetRow.descSP = newP;
+        targetRow.desc1 = newK;
+        targetRow.desc2 = newL;
+    }
+
+    recalculatePipeline();
+}
+
+function toggleMenuItem(qIndex, isChecked) {
+    const row = state.importRaw.find(r => r.qIndex === qIndex);
+    if (row) {
+        row.checked = isChecked;
+        recalculatePipeline();
+    }
+}
+
+function toggleAllMenuItems(isChecked) {
+    state.importRaw.forEach(r => {
+        if (r.source === 'FTY') r.checked = isChecked;
+    });
+    recalculatePipeline();
+}
+
+function renderFinalizeTable() {
+    const tbody = document.getElementById('finalizeTableBody');
+    if (state.finalizeRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" class="py-8 text-center text-slate-400">No Finalize rows generated.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = state.finalizeRows.map((fin, idx) => `
+        <tr class="hover:bg-slate-50">
+            <td class="py-2 px-3 text-center font-bold text-slate-700">${fin.combineNo}</td>
+            <td class="py-2 px-3 text-center bg-amber-50">
+                <input type="checkbox" ${fin.combineOrNot ? 'checked' : ''} onchange="toggleFinalizeCombine(${idx}, this.checked)" class="w-4 h-4 text-amber-600 rounded">
+            </td>
+            <td class="py-2 px-3 font-bold">${escapeAttr(fin.itemNo)}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.ctnQty}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.pcsCtn}</td>
+            <td class="py-2 px-3 text-right font-mono">${fin.ttlQty}</td>
+            <td class="py-2 px-3 text-right font-mono">${toNum(fin.gw).toFixed(2)}</td>
+            <td class="py-2 px-3 text-right font-mono">${toNum(fin.nw).toFixed(2)}</td>
+            <td class="py-2 px-3 font-mono">${fin.size1} × ${fin.size2} × ${fin.size3}</td>
+            <td class="py-2 px-3">${escapeAttr(fin.desc1 || '')}</td>
+            <td class="py-2 px-3 font-mono">${escapeAttr(fin.desc5)}</td>
+            <td class="py-2 px-3 font-mono text-slate-500">${escapeAttr(fin.containerNo || '')} ${fin.sealNo ? '/ ' + escapeAttr(fin.sealNo) : ''}</td>
+        </tr>
+    `).join('');
+}
+
+function toggleFinalizeCombine(finIdx, isCombined) {
+    if (state.finalizeRows[finIdx]) {
+        state.finalizeRows[finIdx].combineOrNot = isCombined;
+        buildEditedItemFromFinalize();
+        renderEditedTable();
+        updateSummaryMetrics();
+        renderPreview();
+    }
+}
+
+// ============================================================================
+// FULL MANUAL EDITING FOR TAB 3 (EditedItem Table)
+// ============================================================================
+function renderEditedTable() {
+    const tbody = document.getElementById('editedTableBody');
+    if (state.editedItems.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="16" class="py-8 text-center text-slate-400">No EditedItem rows available. Click "➕ Add Blank Row" or import files above.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = state.editedItems.map((ed, idx) => `
+        <tr class="hover:bg-blue-50/30 align-top">
+            <td class="py-2 px-2 text-center text-slate-400 font-mono pt-3">${idx + 1}</td>
+            <!-- Item# (B) -->
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.itemNo)}" oninput="updateEditedCell(${idx}, 'itemNo', this.value)" class="cell-input w-24 font-bold text-slate-800">
+            </td>
+            <!-- CTNqty (C) -->
+            <td class="py-2 px-1.5">
+                <input type="number" step="1" value="${escapeAttr(ed.ctnQty)}" oninput="updateEditedCell(${idx}, 'ctnQty', this.value)" class="cell-input w-20 text-right font-mono font-bold text-blue-700">
+            </td>
+            <!-- pcs/ctn (D) -->
+            <td class="py-2 px-1.5">
+                <input type="number" step="any" value="${escapeAttr(ed.pcsCtn)}" oninput="updateEditedCell(${idx}, 'pcsCtn', this.value)" class="cell-input w-16 text-right font-mono">
+            </td>
+            <!-- Ttlqty (E) -->
+            <td class="py-2 px-1.5">
+                <input type="number" step="any" id="ed-ttlQty-${idx}" value="${escapeAttr(ed.ttlQty)}" oninput="updateEditedCell(${idx}, 'ttlQty', this.value)" class="cell-input w-24 text-right font-mono bg-slate-50">
+            </td>
+            <!-- GW (F) -->
+            <td class="py-2 px-1.5">
+                <input type="number" step="0.01" value="${escapeAttr(ed.gw)}" oninput="updateEditedCell(${idx}, 'gw', this.value)" class="cell-input w-20 text-right font-mono">
+            </td>
+            <!-- NW (G) -->
+            <td class="py-2 px-1.5">
+                <input type="number" step="0.01" value="${escapeAttr(ed.nw)}" oninput="updateEditedCell(${idx}, 'nw', this.value)" class="cell-input w-20 text-right font-mono">
+            </td>
+            <!-- Size1, Size2, Size3 (H, I, J) -->
+            <td class="py-2 px-1.5">
+                <div class="flex items-center space-x-1">
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size1)}" oninput="updateEditedCell(${idx}, 'size1', this.value)" class="cell-input w-16 text-center font-mono" title="Size 1 (H)">
+                    <span class="text-slate-400">×</span>
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size2)}" oninput="updateEditedCell(${idx}, 'size2', this.value)" class="cell-input w-16 text-center font-mono" title="Size 2 (I)">
+                    <span class="text-slate-400">×</span>
+                    <input type="number" step="0.001" value="${escapeAttr(ed.size3)}" oninput="updateEditedCell(${idx}, 'size3', this.value)" class="cell-input w-16 text-center font-mono" title="Size 3 (J)">
+                </div>
+            </td>
+            <!-- DescSP (P) -->
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.descSP || '')}" oninput="updateEditedCell(${idx}, 'descSP', this.value)" class="cell-input w-36" placeholder="Special Desc (P)">
+            </td>
+            <!-- Desc1 (K) -->
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.desc1 || '')}" oninput="updateEditedCell(${idx}, 'desc1', this.value)" class="cell-input w-48 font-semibold" placeholder="Main Desc 1 (K)">
+            </td>
+            <!-- Desc2 (L) -->
+            <td class="py-2 px-1.5">
+                <textarea rows="2" oninput="updateEditedCell(${idx}, 'desc2', this.value)" class="cell-input w-52 font-mono text-[11px]" placeholder="Desc 2 (L)">${escapeAttr(ed.desc2 || '')}</textarea>
+            </td>
+            <!-- Desc3 (M) -->
+            <td class="py-2 px-1.5">
+                <input type="text" id="ed-desc3-${idx}" value="${escapeAttr(ed.desc3 || '')}" oninput="updateEditedCell(${idx}, 'desc3', this.value)" class="cell-input w-40 font-mono text-[11px]" placeholder="PCS PER MASTER CTN">
+            </td>
+            <!-- Barcode / Desc4 (N) -->
+            <td class="py-2 px-1.5">
+                <input type="text" value="${escapeAttr(ed.desc4 || '')}" oninput="updateEditedCell(${idx}, 'desc4', this.value)" class="cell-input w-44 font-mono text-[11px]" placeholder="BARCODE NO.">
+            </td>
+            <!-- Span / Desc5 (O) -->
+            <td class="py-2 px-1.5">
+                <input type="text" id="ed-desc5-${idx}" value="${escapeAttr(ed.desc5 || '')}" oninput="updateEditedCell(${idx}, 'desc5', this.value)" class="cell-input w-36 font-mono text-[11px]" placeholder="from 1 to X CTN(S)">
+            </td>
+            <!-- Container# (R) & Seal# (S) -->
+            <td class="py-2 px-1.5">
+                <div class="flex space-x-1">
+                    <input type="text" value="${escapeAttr(ed.containerNo || '')}" oninput="updateEditedCell(${idx}, 'containerNo', this.value)" class="cell-input w-24 font-mono text-[11px]" placeholder="Cntr#">
+                    <input type="text" value="${escapeAttr(ed.sealNo || '')}" oninput="updateEditedCell(${idx}, 'sealNo', this.value)" class="cell-input w-20 font-mono text-[11px]" placeholder="Seal#">
+                </div>
+            </td>
+            <!-- Delete Row Button -->
+            <td class="py-2 px-2 text-center pt-2.5">
+                <button onclick="deleteEditedRow(${idx})" class="text-rose-500 hover:text-rose-700 font-bold px-1.5 py-0.5 rounded hover:bg-rose-50 transition" title="Delete Row">🗑️</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateEditedCell(idx, field, val) {
+    const item = state.editedItems[idx];
+    if (!item) return;
+
+    if (['ctnQty', 'pcsCtn', 'ttlQty', 'gw', 'nw', 'size1', 'size2', 'size3'].includes(field)) {
+        item[field] = toNum(val);
+    } else {
+        item[field] = val;
+    }
+
+    // Smart Auto-Sync when user changes CTNqty (C)
+    if (field === 'ctnQty') {
+        const newTtl = toNum(item.ctnQty) * toNum(item.pcsCtn);
+        item.ttlQty = newTtl;
+        const ttlInput = document.getElementById(`ed-ttlQty-${idx}`);
+        if (ttlInput) ttlInput.value = newTtl;
+
+        // If Span (O) is empty or follows standard "from 1 to X CTN(S)", auto-sync it
+        if (!item.desc5 || /^from\s+1\s+to\s+\d+\s+CTN\(S\)$/i.test(item.desc5.trim())) {
+            item.desc5 = `from 1 to ${item.ctnQty} CTN(S)`;
+            const desc5Input = document.getElementById(`ed-desc5-${idx}`);
+            if (desc5Input) desc5Input.value = item.desc5;
+        }
+    }
+
+    // Smart Auto-Sync when user changes pcs/ctn (D)
+    if (field === 'pcsCtn') {
+        const newTtl = toNum(item.ctnQty) * toNum(item.pcsCtn);
+        item.ttlQty = newTtl;
+        const ttlInput = document.getElementById(`ed-ttlQty-${idx}`);
+        if (ttlInput) ttlInput.value = newTtl;
+
+        if (!item.desc3 || /^\d+(\.\d+)?PCS PER MASTER CTN\(S\)$/i.test(item.desc3.trim())) {
+            item.desc3 = `${item.pcsCtn}PCS PER MASTER CTN(S)`;
+            const desc3Input = document.getElementById(`ed-desc3-${idx}`);
+            if (desc3Input) desc3Input.value = item.desc3;
+        }
+    }
+
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function addEditedRow() {
+    state.editedItems.push({
+        source: 'FTY',
+        itemNo: '0000000',
+        ctnQty: 1,
+        pcsCtn: 1,
+        ttlQty: 1,
+        gw: 0,
+        nw: 0,
+        size1: 0,
+        size2: 0,
+        size3: 0,
+        descSP: '',
+        desc1: '',
+        desc2: '',
+        desc3: '1PCS PER MASTER CTN(S)',
+        desc4: '',
+        desc5: 'from 1 to 1 CTN(S)',
+        containerNo: '',
+        sealNo: '',
+        colT: '',
+        colU: ''
+    });
+    renderEditedTable();
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function deleteEditedRow(idx) {
+    state.editedItems.splice(idx, 1);
+    renderEditedTable();
+    updateSummaryMetrics();
+    renderPreview();
+}
+
+function renderRawInspector() {
+    const tbody = document.getElementById('rawInspectorBody');
+    if (state.importRaw.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="15" class="py-8 text-center text-slate-400">ImportRaw is empty.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = state.importRaw.map(r => `
+        <tr class="${r.source === 'SAP' ? 'bg-amber-50/40' : 'bg-white'} hover:bg-slate-100">
+            <td class="py-1.5 px-2 font-mono font-bold">${r.qIndex}</td>
+            <td class="py-1.5 px-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.source === 'SAP' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}">${r.source}</span></td>
+            <td class="py-1.5 px-2 font-bold">${escapeAttr(r.itemNo)}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.ctnQty}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.pcsCtn}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.ttlQty}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.gw}</td>
+            <td class="py-1.5 px-2 text-right font-mono">${r.nw}</td>
+            <td class="py-1.5 px-2 font-mono">${r.size1}×${r.size2}×${r.size3}</td>
+            <td class="py-1.5 px-2">${escapeAttr(r.descSP || '')}</td>
+            <td class="py-1.5 px-2">${escapeAttr(r.desc1 || '')}</td>
+            <td class="py-1.5 px-2 whitespace-pre-line text-[10px]">${escapeAttr(r.desc2 || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.desc4 || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.containerNo || '')} ${escapeAttr(r.sealNo || '')}</td>
+            <td class="py-1.5 px-2 font-mono text-[10px]">${escapeAttr(r.colT || '')} / ${escapeAttr(r.colU || '')}</td>
+        </tr>
+    `).join('');
+}
+
+// ============================================================================
+// STEP 5: BODY & MERGED SHEET GENERATOR (Port of Modify2_Body, Modify3_Header, Modify4_Footer)
+// ============================================================================
+function formatItemNoString(rowObj) {
+    const isKamFung = state.supplier === 'Kam Fung';
+    const bVal = cleanStr(rowObj.itemNo);
+    let uVal = cleanStr(rowObj.colU);
+    let tVal = cleanStr(rowObj.colT);
+
+    if (isKamFung && !uVal) {
+        const matchFty = state.importRaw.find(r => r.source === 'FTY' && r.itemNo === bVal && r.colU);
+        if (matchFty) {
+            uVal = cleanStr(matchFty.colU);
+            tVal = cleanStr(matchFty.colT);
+        }
+    }
+
+    if (isKamFung && uVal !== '' && uVal !== bVal) {
+        if (tVal === '') return `Item No: (J${uVal}) J${bVal}`;
+        return `Item No: (J${uVal}) ${tVal}${bVal}`;
+    }
+    // Avoid double J if user manually typed J in Item#
+    if (/^J/i.test(bVal)) return `Item No: ${bVal}`;
+    return `Item No: J${bVal}`;
+}
+
+function generateBodyRowsArray() {
+    const rows = [];
+    rows.push(['', '', '', '', '', '', '', '']); // Row 1 blank in Body sheet
+
+    state.editedItems.forEach(item => {
+        if (!cleanStr(item.itemNo)) return;
+        const itemNoStr = formatItemNoString(item);
+        const gwStr = `${toNum(item.gw).toFixed(2)}KG`;
+        const nwStr = `${toNum(item.nw).toFixed(2)}KG`;
+        const dimStr = `${toNum(item.size1).toFixed(3)} X ${toNum(item.size2).toFixed(3)} X ${toNum(item.size3).toFixed(3)}`;
+
+        if (cleanStr(item.descSP) !== '') {
+            rows.push(['', cleanStr(item.descSP), '', gwStr, nwStr, dimStr, '', '']);
+            rows.push(['', itemNoStr, '', '', '', '', '', '']);
+        } else {
+            rows.push(['', itemNoStr, '', gwStr, nwStr, dimStr, '', '']);
+        }
+
+        // K (desc1), L (desc2 - keep line breaks in single cell!), M (desc3), N (desc4)
+        const colsKLMN = [
+            { val: item.desc1, keepMultiline: false },
+            { val: item.desc2, keepMultiline: true },
+            { val: item.desc3, keepMultiline: false },
+            { val: item.desc4, keepMultiline: false }
+        ];
+
+        colsKLMN.forEach(col => {
+            const rawText = cleanStr(col.val);
+            if (rawText !== '') {
+                if (col.keepMultiline) {
+                    rows.push(['', rawText, '', '', '', '', '', '']);
+                } else {
+                    rawText.split(/\r?\n/).forEach(line => {
+                        if (cleanStr(line) !== '') {
+                            rows.push(['', cleanStr(line), '', '', '', '', '', '']);
+                        }
+                    });
+                }
+            }
+        });
+
+        // O (desc5) + CTN(S) in Column A on the last line
+        const oText = cleanStr(item.desc5);
+        const ctnLabel = `${cleanStr(item.ctnQty)} CTN(S)`;
+        if (oText !== '') {
+            const oLines = oText.split(/\r?\n/).map(s => cleanStr(s)).filter(Boolean);
+            oLines.forEach((line, idx) => {
+                const colAVal = (idx === oLines.length - 1) ? ctnLabel : '';
+                rows.push([colAVal, line, '', '', '', '', '', '']);
+            });
+        } else {
+            rows.push([ctnLabel, '', '', '', '', '', '', '']);
+        }
+
+        // 3 Blank Rows Spacing before next item
+        rows.push(['', '', '', '', '', '', '', '']);
+        rows.push(['', '', '', '', '', '', '', '']);
+        rows.push(['', '', '', '', '', '', '', '']);
+    });
+
+    return rows;
+}
+
+function renderPreview() {
+    const container = document.getElementById('packingListPreviewContainer');
+    const h = state.headerInfo;
+    const f = state.footerInfo;
+    const bodyRows = generateBodyRowsArray();
+    const totalCtns = getFinalTotalCartons();
+
+    let html = `
+        <div class="text-center mb-4">
+            <div class="text-base font-bold tracking-wide">BANDAI NAMCO ASIA CO., LTD.</div>
+            <div class="text-xs text-slate-600">Tel: (852) 2866 0229 Fax: (852) 2865 6798</div>
+            <div class="text-sm font-bold underline mt-2">Packing List</div>
+        </div>
+        <div class="grid grid-cols-12 gap-2 mb-4 text-xs">
+            <div class="col-span-2 font-semibold">Invoice No.:</div>
+            <div class="col-span-5 font-bold">${escapeAttr(h.invoiceNo)}</div>
+            <div class="col-span-2 font-semibold">Delivery No.:</div>
+            <div class="col-span-3">${escapeAttr(h.deliveryNo)}</div>
+
+            <div class="col-span-2 font-semibold">Sold To Messrs:</div>
+            <div class="col-span-5 whitespace-pre-line">${escapeAttr(h.soldTo.join('\n') || '')}</div>
+            <div class="col-span-2 font-semibold">Date:<br>Page:</div>
+            <div class="col-span-3">${escapeAttr(h.date)}<br>${escapeAttr(h.page || '1')}</div>
+
+            <div class="col-span-2 font-semibold">Shipped Per :</div>
+            <div class="col-span-10">${escapeAttr(h.shippedPer)}</div>
+            <div class="col-span-2 font-semibold">Sailing On or about:</div>
+            <div class="col-span-10">${escapeAttr(h.sailingOn)}</div>
+            <div class="col-span-2 font-semibold">From:</div>
+            <div class="col-span-4">${escapeAttr(h.from)}</div>
+            <div class="col-span-6">${escapeAttr(h.to)}</div>
+            <div class="col-span-2 font-semibold">Country of Origin:</div>
+            <div class="col-span-10">${escapeAttr(h.origin)}</div>
+            <div class="col-span-2 font-semibold">Payment:</div>
+            <div class="col-span-10">${escapeAttr(h.payment)}</div>
+        </div>
+        <table class="w-full border-collapse text-xs">
+            <thead>
+                <tr class="border-t border-b border-slate-900 font-bold">
+                    <th class="py-1.5 text-left w-1/5">No. of package</th>
+                    <th class="py-1.5 text-left w-2/5">Description of Goods</th>
+                    <th class="py-1.5 text-left w-[12%]">Gross Wt.</th>
+                    <th class="py-1.5 text-left w-[12%]">Net Wt.</th>
+                    <th class="py-1.5 text-left w-[16%]">Measurement(cm)</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    bodyRows.forEach(r => {
+        if (r.every(c => c === '')) {
+            html += `<tr class="h-3"><td colspan="5"></td></tr>`;
+        } else {
+            html += `
+                <tr>
+                    <td class="py-0.5 align-top font-semibold">${escapeAttr(r[0])}</td>
+                    <td class="py-0.5 align-top whitespace-pre-line">${escapeAttr(r[1])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[3])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[4])}</td>
+                    <td class="py-0.5 align-top">${escapeAttr(r[5])}</td>
+                </tr>
+            `;
+        }
+    });
+
+    html += `
+            </tbody>
+        </table>
+        <div class="mt-4 pt-2">
+            <div class="inline-block border-t border-b-4 border-double border-slate-900 font-bold py-1 pr-8 mb-4">
+                ${totalCtns} CTN(S)
+            </div>
+            <div class="grid grid-cols-12 gap-2 text-xs">
+                <div class="col-span-7 space-y-2">
+                    <div>
+                        <div class="font-bold">LC No. :</div>
+                        <div class="whitespace-pre-line pl-2">${escapeAttr(f.lcLines.join('\n'))}</div>
+                    </div>
+                    <div>
+                        <div class="font-bold">Remarks:</div>
+                        <div class="whitespace-pre-line pl-2">${escapeAttr(f.remarksLines.join('\n'))}</div>
+                    </div>
+                </div>
+                <div class="col-span-5 flex flex-col justify-between pt-6">
+                    <div>
+                        <div>FOR AND ON BEHALF OF</div>
+                        <div class="font-bold">Bandai Namco Asia Co., Ltd.</div>
+                    </div>
+                    <div class="border-t border-slate-900 pt-1 mt-12">
+                        AUTHORIZED SIGNATURES
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// ============================================================================
+// STEP 6: EXACT STYLED EXCEL EXPORT (Reflects all manual edits in Tab 3)
+// ============================================================================
+async function exportMergedExcel() {
+    syncHeaderFromUI();
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Sheet1');
+
+    ws.columns = [
+        { key: 'A', width: 49.44 },
+        { key: 'B', width: 34.55 },
+        { key: 'C', width: 34.44 },
+        { key: 'D', width: 8.89 },
+        { key: 'E', width: 24.55 },
+        { key: 'F', width: 21.33 },
+        { key: 'G', width: 9.33 },
+        { key: 'H', width: 11.33 }
+    ];
+
+    const defaultFont = { name: 'Aptos Narrow', size: 11 };
+    const boldFont = { name: 'Aptos Narrow', size: 11, bold: true };
+
+    // --- PART 1: HEADER ---
+    ws.getCell('C9').value = 'Tel: (852) 2866 0229 Fax: (852) 2865 6798';
+    ws.getCell('C11').value = 'Packing List';
+    ws.getCell('C11').font = boldFont;
+
+    ws.getCell('A13').value = 'Invoice No.:';
+    ws.getCell('B13').value = state.headerInfo.invoiceNo;
+    ws.getCell('F13').value = 'Delivery No.:';
+    ws.getCell('H13').value = state.headerInfo.deliveryNo ? (isNaN(state.headerInfo.deliveryNo) ? state.headerInfo.deliveryNo : Number(state.headerInfo.deliveryNo)) : '';
+
+    ws.getCell('A14').value = 'Sold To Messrs:';
+    ws.getCell('F14').value = 'Date:';
+    ws.getCell('H14').value = state.headerInfo.date;
+    ws.getCell('F15').value = 'Page:';
+    ws.getCell('H15').value = Number(state.headerInfo.page) || 1;
+
+    const addrLines = state.headerInfo.soldTo.length > 0 ? state.headerInfo.soldTo : [''];
+    const targetSpace = Math.max(2, addrLines.length);
+    for (let i = 0; i < addrLines.length; i++) {
+        ws.getCell(`B${14 + i}`).value = addrLines[i];
+    }
+
+    const shippedRow = 14 + targetSpace;
+    ws.getCell(`A${shippedRow}`).value = 'Shipped Per   :';
+    ws.getCell(`B${shippedRow}`).value = state.headerInfo.shippedPer;
+
+    ws.getCell(`A${shippedRow + 1}`).value = 'Sailing On or about:';
+    ws.getCell(`B${shippedRow + 1}`).value = state.headerInfo.sailingOn;
+
+    ws.getCell(`A${shippedRow + 2}`).value = 'From:';
+    ws.getCell(`B${shippedRow + 2}`).value = state.headerInfo.from;
+    ws.getCell(`C${shippedRow + 2}`).value = state.headerInfo.to;
+
+    ws.getCell(`A${shippedRow + 3}`).value = 'Country of Orgin:';
+    ws.getCell(`B${shippedRow + 3}`).value = state.headerInfo.origin;
+
+    ws.getCell(`A${shippedRow + 4}`).value = 'Payment:';
+    ws.getCell(`B${shippedRow + 4}`).value = state.headerInfo.payment;
+
+    const pkgHeaderRow = shippedRow + 6;
+    ws.getCell(`A${pkgHeaderRow}`).value = 'No. of package';
+    ws.getCell(`B${pkgHeaderRow}`).value = 'Description of Goods';
+    ws.getCell(`D${pkgHeaderRow}`).value = 'Gross Wt.';
+    ws.getCell(`E${pkgHeaderRow}`).value = 'Net Wt.';
+    ws.getCell(`F${pkgHeaderRow}`).value = 'Measurement(cm)';
+
+    for (let c = 1; c <= 6; c++) {
+        ws.getRow(pkgHeaderRow).getCell(c).border = { top: { style: 'thin' } };
+        ws.getRow(pkgHeaderRow + 1).getCell(c).border = { bottom: { style: 'thin' } };
+    }
+
+    let currentRow = pkgHeaderRow + 2;
+
+    // --- PART 2: BODY (Directly from state.editedItems) ---
+    const bodyRows = generateBodyRowsArray();
+    bodyRows.forEach(rData => {
+        const rowObj = ws.getRow(currentRow);
+        for (let c = 0; c < 8; c++) {
+            if (rData[c] !== '') {
+                const cell = rowObj.getCell(c + 1);
+                cell.value = rData[c];
+                if (String(rData[c]).includes('\n')) {
+                    cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
+                }
+            }
+        }
+        currentRow++;
+    });
+
+    // --- PART 3: FOOTER (Total Cartons calculated from EditedItem Table) ---
+    currentRow += 1;
+    const totalCtns = getFinalTotalCartons();
+    const totalCell = ws.getCell(`A${currentRow}`);
+    totalCell.value = `${totalCtns} CTN(S)`;
+    totalCell.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'double' }
+    };
+
+    currentRow += 2;
+    ws.getCell(`A${currentRow}`).value = 'LC No. :';
+    currentRow++;
+    state.footerInfo.lcLines.forEach(lc => {
+        ws.getCell(`A${currentRow}`).value = lc;
+        currentRow++;
+    });
+
+    ws.getCell(`A${currentRow}`).value = 'Remarks:';
+    currentRow++;
+    state.footerInfo.remarksLines.forEach(rmk => {
+        ws.getCell(`A${currentRow}`).value = rmk;
+        currentRow++;
+    });
+
+    currentRow++;
+    ws.getCell(`E${currentRow}`).value = ' FOR AND ON BEHALF OF';
+    currentRow++;
+    const behalfCell = ws.getCell(`E${currentRow}`);
+    behalfCell.value = 'Bandai Namco Asia Co., Ltd.';
+    behalfCell.font = boldFont;
+
+    currentRow += 3;
+    ws.getCell(`E${currentRow}`).value = 'AUTHORIZED SIGNATURES';
+    ws.getCell(`E${currentRow}`).border = { top: { style: 'thin' } };
+    ws.getCell(`F${currentRow}`).border = { top: { style: 'thin' } };
+    ws.getCell(`G${currentRow}`).border = { top: { style: 'thin' } };
+
+    ws.eachRow({ includeEmpty: false }, row => {
+        row.eachCell({ includeEmpty: false }, cell => {
+            if (!cell.font) cell.font = defaultFont;
+        });
+    });
+
+    const fileName = `${state.headerInfo.invoiceNo || 'Export'} PL.xlsx`;
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+}
+
+// ============================================================================
+// UI NAVIGATION HELPERS
+// ============================================================================
+function switchTab(tabId) {
+    ['tab-menu', 'tab-finalize', 'tab-edited', 'tab-preview', 'tab-raw'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+        document.getElementById('btn-' + id).classList.remove('tab-active');
+    });
+    document.getElementById(tabId).classList.remove('hidden');
+    document.getElementById('btn-' + tabId).classList.add('tab-active');
+}
+
+function resetAll() {
+    if (!confirm('Clear all imported SAP & Factory data and reset the workspace?')) return;
+    location.reload();
+}
+</script>
+</body>
+</html>

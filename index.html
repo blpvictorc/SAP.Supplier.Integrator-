@@ -3581,6 +3581,7 @@ function renderPreview() {
 // STEP 6: EXACT STYLED EXCEL EXPORT
 // ============================================================================
 async function exportMergedExcel() {
+    trackToolFunction("Export_Final_Excel", "Exported merged Excel packing list");
     syncHeaderFromUI();
     const workbook = new ExcelJS.Workbook();
     const ws = workbook.addWorksheet('Sheet1');
@@ -3729,6 +3730,57 @@ function switchTab(tabId) {
 function resetAll() {
     if (!confirm('Clear all imported SAP & Factory data and reset the workspace? (Your saved Custom Factory Presets will be kept)')) return;
     location.reload();
+}
+</script>
+<!-- ========================================================================= -->
+<!-- SS Team 子頁面通用追蹤模組 -->
+<!-- ========================================================================= -->
+<script>
+const SS_TRACKER_CONFIG = {
+    webhookUrl: "https://script.google.com/macros/s/AKfycbxRsIr5VtGc4goLzE9lDR3ME8oWWRwTBuphGDRjNVB4uqgrmPOq99-z47odT9ZdpEy9fA/exec",
+    toolName: "SAP ↔️ Supplier Packing List Integrator"
+};
+
+// 1. 自動讀取 URL 傳過嚟或者同網域 localStorage 嘅 User Name
+(function initSubPageTracker() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('user')) {
+        localStorage.setItem('ss_current_user', params.get('user'));
+    }
+    // 當同事開呢個 Tool 時自動記錄一次開啓次數
+    trackToolFunction("Main_Tool_Opened", "User opened SAP Integrator tool");
+})();
+
+// 2. 追蹤 Function 執行次數與時間
+function trackToolFunction(functionName, extraDetails = "") {
+    const currentUser = localStorage.getItem('ss_current_user') || 'Unidentified_User';
+    
+    const countKey = `ss_fn_count_${SS_TRACKER_CONFIG.toolName}_${functionName}`;
+    let runCount = parseInt(localStorage.getItem(countKey) || '0', 10) + 1;
+    localStorage.setItem(countKey, runCount);
+
+    const payload = {
+        timestamp: new Date().toISOString(),
+        user: currentUser,
+        page: SS_TRACKER_CONFIG.toolName,
+        action: functionName,
+        runCount: runCount,
+        details: extraDetails
+    };
+
+    console.log("[SS Function Tracker]", payload);
+
+    if (!SS_TRACKER_CONFIG.webhookUrl || SS_TRACKER_CONFIG.webhookUrl.includes("YOUR_GOOGLE_APPS_SCRIPT")) {
+        return;
+    }
+
+    fetch(SS_TRACKER_CONFIG.webhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+    }).catch(err => console.error("Tracker error:", err));
 }
 </script>
 </body>

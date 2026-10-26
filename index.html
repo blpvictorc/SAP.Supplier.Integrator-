@@ -1997,6 +1997,9 @@ function clearEditedFilter() {
 // STEP 1: SAP FILE PARSER (Port of Import_SAP.bas)
 // ============================================================================
 function handleSAPUpload(event) {
+                async function exportMergedExcel() { // 💡 呢度就是你要加嘅位置：記錄用家真係撳咗「輸出 Final Packing List」 
+            trackToolFunction("Export_Final_Excel", "Exported merged Excel packing list");
+
     const file = event.target.files[0];
     if (!file) return;
     document.getElementById('sapFileName').textContent = file.name;
